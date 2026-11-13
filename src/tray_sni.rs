@@ -131,20 +131,20 @@ fn same_icons(a: &[SniIcon], b: &[SniIcon]) -> bool {
 }
 
 /// Converts rustsni's native-endian ARGB32 pixmap into tiny-skia's RGBA pixmap.
-/// On the Linux little-endian targets supported by Selkies, bytes are BGRA.
+/// SNI transfers ARGB32 in network byte order (A, R, G, B).
 fn icon_pixmap(icon: &rustsni::IconPixmap) -> Option<Pixmap> {
-    let width = icon.width;
-    let height = icon.height;
+    let width = u32::try_from(icon.width).ok()?;
+    let height = u32::try_from(icon.height).ok()?;
     let len = (width as usize).checked_mul(height as usize)?.checked_mul(4)?;
     if width == 0 || height == 0 || icon.data.len() < len {
         return None;
     }
     let mut rgba = vec![0u8; len];
     for (src, dst) in icon.data[..len].chunks_exact(4).zip(rgba.chunks_exact_mut(4)) {
-        dst[0] = src[2];
-        dst[1] = src[1];
-        dst[2] = src[0];
-        dst[3] = src[3];
+        dst[0] = src[1];
+        dst[1] = src[2];
+        dst[2] = src[3];
+        dst[3] = src[0];
     }
     Pixmap::from_vec(rgba, IntSize::from_wh(width, height)?)
 }
