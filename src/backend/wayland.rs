@@ -1219,6 +1219,8 @@ impl Backend for WaylandBackend {
                 let version = self.state.layer_shell_version;
                 if let Some(Surface {
                     role: Role::Layer(layer),
+                    wl,
+                    mapped,
                     ..
                 }) = &self.state.panel
                 {
@@ -1235,6 +1237,12 @@ impl Backend for WaylandBackend {
                         zwlr_layer_surface_v1::KeyboardInteractivity::None
                     };
                     layer.set_keyboard_interactivity(interactivity);
+                    // Apply the layer and keyboard-interactivity changes now.
+                    // Waiting for the next buffer commit made the popup appear
+                    // only after pointer motion caused another panel redraw.
+                    if *mapped {
+                        wl.commit();
+                    }
                 }
             }
             Request::Cursor { pointer } => {
