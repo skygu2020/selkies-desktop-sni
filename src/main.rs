@@ -289,6 +289,12 @@ fn run() -> i32 {
             }
         }
 
+        // Requests produced after the first panel render (including SNI menu
+        // responses) must be presented before the event loop sleeps in poll().
+        if let Some(frame) = desktop.render_panel() {
+            backend.present(SurfaceId::Panel, &frame);
+        }
+
         if let Err(error) = backend.prepare() {
             eprintln!("selkies-desktop: {} connection lost: {error}", backend.name());
             return 1;
