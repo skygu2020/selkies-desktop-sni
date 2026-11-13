@@ -1313,7 +1313,8 @@ impl Backend for WaylandBackend {
                     .start_drag(&qh, *window, uris.clone(), icon.as_deref(), *scale);
             }
             Request::SetVolume(_) | Request::ToggleMute
-            | Request::TrayClick { .. } | Request::TrayScroll { .. } => {}
+            | Request::TrayClick { .. } | Request::TrayScroll { .. }
+            | Request::TrayMenuOpen { .. } | Request::TrayMenuClick { .. } => {}
         }
     }
 }
