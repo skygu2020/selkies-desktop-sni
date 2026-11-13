@@ -187,11 +187,6 @@ fn run() -> i32 {
                         sni.scroll(index, delta, false);
                     }
                 }
-                Request::TrayScroll { index, delta } => {
-                    if let Some(sni) = sni.as_mut() {
-                        sni.scroll(index, delta, false);
-                    }
-                }
                 other => backend.perform(&other),
             }
         }
@@ -244,6 +239,11 @@ fn run() -> i32 {
                             event::Button::Right => 3,
                         };
                         sni.click(index, button, ox + x * scale, oy + y * scale);
+                    }
+                }
+                Request::TrayScroll { index, delta } => {
+                    if let Some(sni) = sni.as_mut() {
+                        sni.scroll(index, delta, false);
                     }
                 }
                 other => backend.perform(&other),
