@@ -127,6 +127,28 @@ impl TraySni {
         }
     }
 
+    /// Fetches the DBusMenu layout for an item. The call is only made on
+    /// explicit user interaction; it is intentionally not part of polling.
+    pub fn menu(&mut self, index: usize) -> Vec<rustsni::MenuNode> {
+        let Some(icon) = self.icons.get(index) else { return Vec::new(); };
+        let id = icon.id.clone();
+        match self.host.get_menu(&id, 0) {
+            Ok(nodes) => nodes,
+            Err(error) => {
+                eprintln!("selkies-desktop: cannot read tray menu for {id}: {error}");
+                Vec::new()
+            }
+        }
+    }
+
+    /// Activates a DBusMenu entry belonging to the selected tray item.
+    pub fn menu_click(&mut self, index: usize, menu_id: i32) {
+        let Some(icon) = self.icons.get(index) else { return; };
+        if let Err(error) = self.host.menu_click(&icon.id, menu_id) {
+            eprintln!("selkies-desktop: tray menu action failed: {error}");
+        }
+    }
+
     /// Forwards a wheel event to an item (SNI delta is expressed in steps).
     pub fn scroll(&mut self, index: usize, delta: i32, horizontal: bool) {
         let Some(icon) = self.icons.get(index) else { return; };
