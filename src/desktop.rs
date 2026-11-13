@@ -160,6 +160,8 @@ pub enum Hover {
     Clock,
     /// The show desktop button.
     ShowDesktop,
+    /// A StatusNotifierItem, by SNI snapshot index.
+    Tray(usize),
     /// A menu category row.
     MenuCategory(usize),
     /// A menu application row, or a cell of the application grid.
