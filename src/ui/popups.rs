@@ -493,7 +493,9 @@ pub fn task_menu_click(d: &mut Desktop, x: f64, y: f64, button: Button) -> bool 
 fn tray_menu_rows(nodes: &[rustsni::MenuNode], depth: usize, rows: &mut Vec<(i32, String, bool, usize, String, i32, bool)>) {
     for node in nodes.iter().filter(|node| node.visible) {
         let label = tray_menu_label(&node.label);
-        let separator = label.trim().is_empty() || label.trim() == "-";
+        let empty_label = label.trim().is_empty();
+        let structural_node = empty_label && !node.children.is_empty() && !node.is_submenu;
+        let separator = label.trim() == "-" || (empty_label && !structural_node);
 
         if separator {
             if !rows.is_empty()
@@ -502,12 +504,12 @@ fn tray_menu_rows(nodes: &[rustsni::MenuNode], depth: usize, rows: &mut Vec<(i32
                 rows.push((node.id, String::new(), false, depth,
                     String::new(), 0, false));
             }
-        } else {
+        } else if !structural_node {
             rows.push((node.id, label, node.enabled, depth,
                 node.toggle_type.clone(), node.toggle_state, node.is_submenu));
         }
 
-        if node.is_submenu || (label.is_empty() && !node.children.is_empty()) {
+        if node.is_submenu || structural_node {
             tray_menu_rows(&node.children, depth + 1, rows);
         }
     }
@@ -517,7 +519,6 @@ fn tray_menu_rows(nodes: &[rustsni::MenuNode], depth: usize, rows: &mut Vec<(i32
         rows.pop();
     }
 }
-
 /// DBusMenu labels use underscores for mnemonics; doubled underscores are literal.
 fn tray_menu_label(label: &str) -> String {
     let mut chars = label.chars().peekable();
