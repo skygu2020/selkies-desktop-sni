@@ -213,7 +213,7 @@ fn run() -> i32 {
                 geom::Rect::new(r.x + ox, r.y + oy, r.w, r.h)
             });
             let slot = slot.map(|r| {
-                let offset = desktop.sni_icons.len() as i32 * (desktop.panel_icon_size() + 4 + 4);
+                let offset = desktop.sni_icons.len() as i32 * (desktop.panel_icon_size() + 4 + 4) * scale;
                 geom::Rect::new(r.x + offset, r.y, (r.w - offset).max(0), r.h)
             });
             tray.place(slot, (desktop.panel_icon_size() + 4) * scale);
