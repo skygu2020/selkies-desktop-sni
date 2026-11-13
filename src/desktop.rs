@@ -266,8 +266,10 @@ pub struct Desktop {
     /// The wallpaper image shrunk for the settings window's theme preview,
     /// with the path and scale it was made for.
     pub preview_wallpaper: Option<(std::path::PathBuf, i32, Rc<Pixmap>)>,
-    /// Icons docked in the system tray.
+    /// XEmbed icons docked in the system tray.
     pub tray_icons: usize,
+    /// StatusNotifierItem icons, rendered by the panel.
+    pub sni_icons: Vec<crate::tray_sni::SniIcon>,
     /// The strip of the bar the tray icons occupy, in panel coordinates.
     pub tray_slot: Option<Rect>,
     /// Whether the tray strip moved since the tray was last placed.
@@ -342,6 +344,7 @@ impl Desktop {
             panel_offset: (0, 0),
             preview_wallpaper: None,
             tray_icons: 0,
+            sni_icons: Vec::new(),
             tray_slot: None,
             tray_moved: false,
         };
@@ -404,6 +407,20 @@ impl Desktop {
         if self.tray_icons != count {
             self.tray_icons = count;
             self.panel_dirty = true;
+        }
+    }
+
+    /// Replaces the current StatusNotifierItem snapshot and redraws the panel when it changes.
+    pub fn set_sni_icons(&mut self, icons: Vec<crate::tray_sni::SniIcon>) {
+        if self.sni_icons.len() != icons.len()
+            || self.sni_icons.iter().zip(&icons).any(|(a, b)| {
+                a.id != b.id || a.title != b.title || a.icon_name != b.icon_name
+                    || a.pixmap.as_ref().map(|p| p.data()) != b.pixmap.as_ref().map(|p| p.data())
+            })
+        {
+            self.sni_icons = icons;
+            self.panel_dirty = true;
+            self.tray_moved = true;
         }
     }
 
