@@ -417,7 +417,10 @@ impl Desktop {
         if self.sni_icons.len() != icons.len()
             || self.sni_icons.iter().zip(&icons).any(|(a, b)| {
                 a.id != b.id || a.title != b.title || a.icon_name != b.icon_name
-                    || a.pixmap.as_ref().map(|p| p.data()) != b.pixmap.as_ref().map(|p| p.data())
+                    || a.attention_icon_name != b.attention_icon_name || a.status != b.status
+                    || a.tooltip != b.tooltip
+                    || a.pixmap.as_ref().map(|p| (p.width(), p.height(), p.data())) != b.pixmap.as_ref().map(|p| (p.width(), p.height(), p.data()))
+                    || a.attention_pixmap.as_ref().map(|p| (p.width(), p.height(), p.data())) != b.attention_pixmap.as_ref().map(|p| (p.width(), p.height(), p.data()))
             })
         {
             self.sni_icons = icons;
@@ -1191,7 +1194,9 @@ impl Desktop {
             }),
             Hover::Clock => Some(crate::clock::format_now("%A, %B %-d, %Y")),
             Hover::ShowDesktop => Some(tr("Show desktop").to_string()),
-            Hover::Tray(i) => self.sni_icons.get(i).map(|icon| icon.title.clone()),
+            Hover::Tray(i) => self.sni_icons.get(i).map(|icon| {
+                if icon.tooltip.is_empty() { icon.title.clone() } else { icon.tooltip.clone() }
+            }),
             Hover::Start => Some(tr("Applications").to_string()),
             Hover::Launcher(i) => self
                 .config
