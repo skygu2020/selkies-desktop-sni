@@ -5,9 +5,7 @@
 //! premultiplied RGBA format used by tiny-skia.
 
 use std::os::fd::RawFd;
-use std::sync::Arc;
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::thread;
+use std::rc::Rc;
 
 use rustsni::{ItemId, TrayEvent, TrayHost};
 use tiny_skia::{IntSize, Pixmap};
@@ -21,7 +19,7 @@ pub struct SniIcon {
     pub title: String,
     pub icon_name: String,
     pub icon_theme_path: String,
-    pub pixmap: Option<Arc<Pixmap>>,
+    pub pixmap: Option<Rc<Pixmap>>,
     pub attention_icon_name: String,
     pub attention_pixmap: Option<Rc<Pixmap>>,
     pub status: String,
@@ -56,10 +54,6 @@ impl TraySni {
         self.host.fd()
     }
 
-    fn index_of(&self, item_id: &str) -> Option<usize> {
-        self.icons.iter().position(|icon| icon.id.0 == item_id)
-    }
-
     /// Current items in deterministic order.
     pub fn icons(&self) -> &[SniIcon] {
         &self.icons
@@ -67,7 +61,7 @@ impl TraySni {
 
     /// Process pending D-Bus messages and refresh the icon snapshot.
     /// Returns true when visible item data changed.
-    pub fn poll(&mut self, size: u32) -> (bool, Vec<String>) {
+    pub fn poll(&mut self, size: u32) -> bool {
         let events = match self.host.poll() {
             Ok(events) => events,
             Err(error) => {
@@ -75,17 +69,13 @@ impl TraySni {
                 return false;
             }
         };
-        let invalidated = events.iter().filter_map(|event| match event {
-            TrayEvent::MenuChanged(id) | TrayEvent::ItemChanged(id) | TrayEvent::ItemRemoved(id) => Some(id.0.clone()),
-            _ => None,
-        }).collect::<Vec<_>>();
         let relevant = events.iter().any(|event| matches!(
             event,
             TrayEvent::ItemAdded(_) | TrayEvent::ItemChanged(_) | TrayEvent::ItemRemoved(_)
                 | TrayEvent::MenuChanged(_) | TrayEvent::MenuActivationRequested(_) | TrayEvent::HostShutdown
         ));
         if !relevant && !self.icons.is_empty() {
-            return (false, invalidated);
+            return false;
         }
 
         let mut items: Vec<_> = self.host.items().values().collect();
@@ -95,7 +85,7 @@ impl TraySni {
             // Do not hide Passive items: some applications publish a useful
             // icon before switching to Active, and users asked to see all.
             let pixmap = item.best_icon_pixmap().and_then(icon_pixmap)
-                .and_then(|pix| resize_pixmap(&pix, size).map(Arc::new));
+                .and_then(|pix| resize_pixmap(&pix, size).map(Rc::new));
             let attention_pixmap = item.best_attention_icon_pixmap().and_then(icon_pixmap)
                 .and_then(|pix| resize_pixmap(&pix, size).map(Rc::new));
             let tooltip = [item.tooltip.title.as_str(), item.tooltip.text.as_str()]
@@ -117,7 +107,7 @@ impl TraySni {
         if changed {
             self.icons = next;
         }
-        (changed, invalidated)
+        changed
     }
 
     /// Dispatches a pointer action to the selected item.
@@ -168,126 +158,6 @@ impl TraySni {
     }
 }
 
-
-/// Commands are executed on the thread that owns the TrayHost. In particular,
-/// synchronous DBusMenu calls never share the panel's event-loop thread.
-enum WorkerCommand {
-    Menu(String),
-    Click { item_id: String, button: u8, x: i32, y: i32 },
-    MenuClick { item_id: String, menu_id: i32 },
-    Scroll { item_id: String, delta: i32, horizontal: bool },
-    SetIconSize(u32),
-    Shutdown,
-}
-
-/// Updates delivered from the SNI worker to the panel thread.
-pub enum TraySniEvent {
-    Icons(Vec<SniIcon>),
-    Menu { item_id: String, nodes: Vec<rustsni::MenuNode> },
-    MenuInvalidated(String),
-}
-
-/// Owns a dedicated worker thread. The TrayHost is created and remains on that
-/// thread, so its D-Bus connection is never shared or locked by the UI thread.
-pub struct TraySniWorker {
-    commands: Sender<WorkerCommand>,
-    events: Receiver<TraySniEvent>,
-}
-
-impl TraySniWorker {
-    /// Starts the worker and waits only for initial host registration.
-    pub fn new(size: u32) -> Option<(Self, Vec<SniIcon>)> {
-        let (command_tx, command_rx) = mpsc::channel();
-        let (event_tx, event_rx) = mpsc::channel();
-        let (ready_tx, ready_rx) = mpsc::sync_channel(1);
-
-        thread::Builder::new()
-            .name("selkies-sni".into())
-            .spawn(move || {
-                let Some(mut sni) = TraySni::new() else {
-                    let _ = ready_tx.send(None);
-                    return;
-                };
-                let _ = sni.poll(size);
-                if ready_tx.send(Some(sni.icons().to_vec())).is_err() {
-                    return;
-                }
-                let mut icon_size = size;
-
-                loop {
-                    match command_rx.recv_timeout(std::time::Duration::from_millis(200)) {
-                        Ok(WorkerCommand::Shutdown) | Err(RecvTimeoutError::Disconnected) => break,
-                        Ok(WorkerCommand::SetIconSize(size)) => icon_size = size.max(1),
-                        Ok(WorkerCommand::Menu(item_id)) => {
-                            let nodes = sni.index_of(&item_id)
-                                .map(|index| sni.menu(index))
-                                .unwrap_or_default();
-                            let _ = event_tx.send(TraySniEvent::Menu { item_id, nodes });
-                        }
-                        Ok(WorkerCommand::Click { item_id, button, x, y }) => {
-                            if let Some(index) = sni.index_of(&item_id) {
-                                sni.click(index, button, x, y);
-                            }
-                        }
-                        Ok(WorkerCommand::MenuClick { item_id, menu_id }) => {
-                            if let Some(index) = sni.index_of(&item_id) {
-                                sni.menu_click(index, menu_id);
-                            }
-                        }
-                        Ok(WorkerCommand::Scroll { item_id, delta, horizontal }) => {
-                            if let Some(index) = sni.index_of(&item_id) {
-                                sni.scroll(index, delta, horizontal);
-                            }
-                        }
-                        Err(RecvTimeoutError::Timeout) => {}
-                    }
-
-                    let (changed, invalidated) = sni.poll(icon_size);
-                    for item_id in invalidated {
-                        let _ = event_tx.send(TraySniEvent::MenuInvalidated(item_id));
-                    }
-                    if changed && event_tx.send(TraySniEvent::Icons(sni.icons().to_vec())).is_err() {
-                        break;
-                    }
-                }
-            })
-            .ok()?;
-
-        let initial_icons = ready_rx.recv().ok()??;
-        Some((Self { commands: command_tx, events: event_rx }, initial_icons))
-    }
-
-    pub fn request_menu(&self, item_id: String) {
-        let _ = self.commands.send(WorkerCommand::Menu(item_id));
-    }
-
-    pub fn click(&self, item_id: String, button: u8, x: i32, y: i32) {
-        let _ = self.commands.send(WorkerCommand::Click { item_id, button, x, y });
-    }
-
-    pub fn menu_click(&self, item_id: String, menu_id: i32) {
-        let _ = self.commands.send(WorkerCommand::MenuClick { item_id, menu_id });
-    }
-
-    pub fn scroll(&self, item_id: String, delta: i32, horizontal: bool) {
-        let _ = self.commands.send(WorkerCommand::Scroll { item_id, delta, horizontal });
-    }
-
-    pub fn set_icon_size(&self, size: u32) {
-        let _ = self.commands.send(WorkerCommand::SetIconSize(size));
-    }
-
-    pub fn try_recv(&self) -> Result<TraySniEvent, mpsc::TryRecvError> {
-        self.events.try_recv()
-    }
-}
-
-impl Drop for TraySniWorker {
-    fn drop(&mut self) {
-        let _ = self.commands.send(WorkerCommand::Shutdown);
-    }
-}
-
 fn same_icons(a: &[SniIcon], b: &[SniIcon]) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(a, b)| {
         a.id == b.id
@@ -303,7 +173,7 @@ fn same_icons(a: &[SniIcon], b: &[SniIcon]) -> bool {
     })
 }
 
-fn same_pixmap(a: &Option<Arc<Pixmap>>, b: &Option<Arc<Pixmap>>) -> bool {
+fn same_pixmap(a: &Option<Rc<Pixmap>>, b: &Option<Rc<Pixmap>>) -> bool {
     match (a, b) {
         (Some(a), Some(b)) => a.width() == b.width() && a.height() == b.height() && a.data() == b.data(),
         (None, None) => true,
