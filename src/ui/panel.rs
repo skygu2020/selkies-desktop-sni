@@ -271,7 +271,7 @@ pub fn click(d: &mut Desktop, x: f64, y: f64, button: Button, _time: u32) {
         Hover::Tray(index) => {
             let menu_only = d.sni_icons.get(index).is_some_and(|icon| icon.item_is_menu);
             if button == Button::Right || (button == Button::Left && menu_only) {
-                d.requests.push(crate::event::Request::TrayMenuOpen { index });
+                d.requests.push(crate::event::Request::TrayMenuOpen { index, x: x as i32, y: y as i32 });
             } else {
                 d.requests.push(crate::event::Request::TrayClick {
                     index, button, x: x as i32, y: y as i32,
