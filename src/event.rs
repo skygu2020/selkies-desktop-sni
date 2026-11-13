@@ -174,6 +174,8 @@ pub enum Request {
     ToggleMute,
     /// Forward a pointer action to a StatusNotifierItem.
     TrayClick { index: usize, button: Button, x: i32, y: i32 },
+    /// Forward a wheel action to a StatusNotifierItem.
+    TrayScroll { index: usize, delta: i32 },
     /// Open a file manager window of a size, titled, with the icon a window
     /// manager may show for it.
     OpenWindow {
