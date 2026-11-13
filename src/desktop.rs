@@ -1311,6 +1311,7 @@ impl Desktop {
         }
         self.tray_menu = nodes;
         self.open_popup(Popup::TrayMenu(index));
+        self.redraw_panel();
     }
 
     /// Closes the open popup.
