@@ -487,12 +487,29 @@ pub fn task_menu_click(d: &mut Desktop, x: f64, y: f64, button: Button) -> bool 
 /// A flattened, visible DBusMenu row. Children are indented below parents.
 fn tray_menu_rows(nodes: &[rustsni::MenuNode], depth: usize, rows: &mut Vec<(i32, String, bool, usize, String, i32, bool)>) {
     for node in nodes.iter().filter(|node| node.visible) {
-        rows.push((node.id, node.label.replace('_', ""), node.enabled, depth,
+        rows.push((node.id, tray_menu_label(&node.label), node.enabled, depth,
             node.toggle_type.clone(), node.toggle_state, node.is_submenu));
         if node.is_submenu {
             tray_menu_rows(&node.children, depth + 1, rows);
         }
     }
+}
+
+/// DBusMenu labels use underscores for mnemonics; doubled underscores are literal.
+fn tray_menu_label(label: &str) -> String {
+    let mut chars = label.chars().peekable();
+    let mut output = String::with_capacity(label.len());
+    while let Some(ch) = chars.next() {
+        if ch == '_' {
+            if chars.peek() == Some(&'_') {
+                chars.next();
+                output.push('_');
+            }
+        } else {
+            output.push(ch);
+        }
+    }
+    output
 }
 
 fn tray_menu_data(d: &Desktop) -> Vec<(i32, String, bool, usize, String, i32, bool)> {
@@ -543,18 +560,63 @@ pub fn tray_menu_hit(d: &mut Desktop, x: f64, y: f64) -> Option<Hover> {
     Some(Hover::None)
 }
 
-pub fn tray_menu_click(d: &mut Desktop, x: f64, y: f64, button: Button) -> bool {
-    let Popup::TrayMenu(index) = d.popup else { return false; };
-    let Some(hover) = tray_menu_hit(d, x, y) else { return false; };
-    if button == Button::Left
-        && let Hover::TrayMenuItem(row) = hover
-        && let Some((id, _, enabled, _, _, _, submenu)) = tray_menu_data(d).get(row)
-        && *enabled && !submenu
+fn tray_menu_activate_row(d: &mut Desktop, row: usize) {
+    let Popup::TrayMenu(index) = d.popup else { return; };
+    if let Some((id, label, enabled, _, _, _, submenu)) = tray_menu_data(d).get(row)
+        && *enabled && !*submenu && !label.is_empty() && label != "-"
     {
         d.requests.push(crate::event::Request::TrayMenuClick { index, menu_id: *id });
         d.close_popup();
     }
+}
+
+pub fn tray_menu_click(d: &mut Desktop, x: f64, y: f64, button: Button) -> bool {
+    let Popup::TrayMenu(_) = d.popup else { return false; };
+    let Some(hover) = tray_menu_hit(d, x, y) else { return false; };
+    if button == Button::Left
+        && let Hover::TrayMenuItem(row) = hover
+    {
+        tray_menu_activate_row(d, row);
+    }
     true
+}
+
+/// Keyboard navigation for an open StatusNotifier DBusMenu.
+pub fn tray_menu_key(d: &mut Desktop, key: Key) {
+    let rows = tray_menu_data(d);
+    if rows.is_empty() { return; }
+    let selectable = |row: &(i32, String, bool, usize, String, i32, bool)| {
+        row.2 && !row.1.is_empty() && row.1 != "-"
+    };
+    let current = match d.hover {
+        Hover::TrayMenuItem(row) => row.min(rows.len().saturating_sub(1)),
+        _ => usize::MAX,
+    };
+    match key {
+        Key::Up | Key::Down | Key::Home | Key::End => {
+            let next = match key {
+                Key::Home => (0..rows.len()).find(|&i| selectable(&rows[i])),
+                Key::End => (0..rows.len()).rev().find(|&i| selectable(&rows[i])),
+                Key::Up => (0..if current == usize::MAX { rows.len() } else { current })
+                    .rev().find(|&i| selectable(&rows[i])),
+                Key::Down => (if current == usize::MAX { 0 } else { current + 1 }..rows.len())
+                    .find(|&i| selectable(&rows[i])),
+                _ => None,
+            };
+            if let Some(row) = next {
+                d.set_hover(Hover::TrayMenuItem(row));
+                d.redraw_panel();
+            }
+        }
+        Key::Enter | Key::Right => {
+            if current != usize::MAX {
+                tray_menu_activate_row(d, current);
+            } else if let Some(row) = (0..rows.len()).find(|&i| selectable(&rows[i])) {
+                tray_menu_activate_row(d, row);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Draws the tooltip above the hovered bar item; returns its rectangle.
