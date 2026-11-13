@@ -19,6 +19,10 @@ pub struct SniIcon {
     pub title: String,
     pub icon_name: String,
     pub pixmap: Option<Rc<Pixmap>>,
+    pub attention_icon_name: String,
+    pub attention_pixmap: Option<Rc<Pixmap>>,
+    pub status: String,
+    pub tooltip: String,
     pub item_is_menu: bool,
 }
 
@@ -81,11 +85,19 @@ impl TraySni {
             // icon before switching to Active, and users asked to see all.
             let pixmap = item.best_icon_pixmap().and_then(icon_pixmap)
                 .and_then(|pix| resize_pixmap(&pix, size).map(Rc::new));
+            let attention_pixmap = item.best_attention_icon_pixmap().and_then(icon_pixmap)
+                .and_then(|pix| resize_pixmap(&pix, size).map(Rc::new));
+            let tooltip = [item.tooltip.title.as_str(), item.tooltip.text.as_str()]
+                .into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join("\n");
             next.push(SniIcon {
                 id: item.id.clone(),
                 title: if item.title.is_empty() { item.item_id.clone() } else { item.title.clone() },
                 icon_name: item.icon_name.clone(),
                 pixmap,
+                attention_icon_name: item.attention_icon_name.clone(),
+                attention_pixmap,
+                status: item.status.clone(),
+                tooltip,
                 item_is_menu: item.item_is_menu,
             });
         }
@@ -124,13 +136,24 @@ impl TraySni {
 
 fn same_icons(a: &[SniIcon], b: &[SniIcon]) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(a, b)| {
-        a.id == b.id && a.title == b.title && a.icon_name == b.icon_name && a.item_is_menu == b.item_is_menu
-            && match (&a.pixmap, &b.pixmap) {
-                (Some(a), Some(b)) => a.width() == b.width() && a.height() == b.height() && a.data() == b.data(),
-                (None, None) => true,
-                _ => false,
-            }
+        a.id == b.id
+            && a.title == b.title
+            && a.icon_name == b.icon_name
+            && a.attention_icon_name == b.attention_icon_name
+            && a.status == b.status
+            && a.tooltip == b.tooltip
+            && a.item_is_menu == b.item_is_menu
+            && same_pixmap(&a.pixmap, &b.pixmap)
+            && same_pixmap(&a.attention_pixmap, &b.attention_pixmap)
     })
+}
+
+fn same_pixmap(a: &Option<Rc<Pixmap>>, b: &Option<Rc<Pixmap>>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => a.width() == b.width() && a.height() == b.height() && a.data() == b.data(),
+        (None, None) => true,
+        _ => false,
+    }
 }
 
 /// Converts rustsni's native-endian ARGB32 pixmap into tiny-skia's RGBA pixmap.
