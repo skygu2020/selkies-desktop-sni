@@ -567,13 +567,26 @@ fn tray_menu_rect(d: &mut Desktop, index: usize) -> Option<Rect> {
     let rows = tray_menu_data(d);
     let layout = tray_menu_row_layout(&rows);
     let content_height = layout.last().map(|(y, h)| y + h).unwrap_or(TRAY_MENU_PADDING);
-    let height = (content_height + TRAY_MENU_PADDING).min(d.panel.height - 16);
+    let height = if d.tray_menu_loading { 42 } else { (content_height + TRAY_MENU_PADDING).min(d.panel.height - 16) };
     Some(anchor_above(d, anchor, TASK_MENU_WIDTH + 36, height))
 }
 
 fn draw_tray_menu(d: &mut Desktop, canvas: &mut Canvas<'_>, index: usize) -> Option<Rect> {
     let frame = tray_menu_rect(d, index)?;
     ui::draw_popup_frame(canvas, frame);
+    if d.tray_menu_loading {
+        ui::label(
+            canvas,
+            &mut d.fonts,
+            "Loading…",
+            Rect::new(frame.x + 10, frame.y + 4, frame.w - 20, frame.h - 8),
+            ui::FONT_SIZE,
+            false,
+            Align::Center,
+            ui::text_dim(),
+        );
+        return Some(frame);
+    }
     let rows = tray_menu_data(d);
     let layout = tray_menu_row_layout(&rows);
     for (row, ((_, label, enabled, depth, toggle, state, submenu), (y, height))) in
