@@ -1802,7 +1802,8 @@ impl Backend for X11Backend {
                 self.start_drag(*window);
                 let _ = self.conn.flush();
             }
-            Request::SetVolume(_) | Request::ToggleMute => {}
+            Request::SetVolume(_) | Request::ToggleMute
+            | Request::TrayClick { .. } | Request::TrayScroll { .. } => {}
         }
     }
 }
