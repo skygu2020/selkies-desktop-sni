@@ -1457,6 +1457,7 @@ impl Desktop {
                 let hover = match self.popup {
                     Popup::Menu => menu::hit(self, x, y).unwrap_or(Hover::None),
                     Popup::TaskMenu(_) => popups::task_menu_hit(self, x, y).unwrap_or(Hover::None),
+                    Popup::TrayMenu(_) => popups::tray_menu_hit(self, x, y).unwrap_or(Hover::None),
                     Popup::PanelMenu(_) => settings::panel_menu_hit(self, x, y).unwrap_or(Hover::None),
                     Popup::Settings => settings::hit(self, x, y).unwrap_or(Hover::None),
                     _ => Hover::None,
