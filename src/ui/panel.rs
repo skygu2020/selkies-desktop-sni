@@ -77,6 +77,12 @@ impl Layout {
             Hover::Volume => self.volume,
             Hover::Clock => self.clock,
             Hover::ShowDesktop => self.show_desktop,
+            Hover::Tray(index) => self.tray.and_then(|r| {
+                let size = r.h - 6;
+                (index < usize::MAX).then_some(Rect::new(
+                    r.x + GAP + index as i32 * (size + GAP), r.y + (r.h - size) / 2, size, size,
+                ))
+            }),
             _ => None,
         }
     }
@@ -123,9 +129,10 @@ pub fn layout(d: &mut Desktop) -> Layout {
     } else {
         None
     };
-    let tray = if d.config.show_tray && d.tray_icons > 0 {
+    let tray_count = d.tray_icons + d.sni_icons.len();
+    let tray = if d.config.show_tray && tray_count > 0 {
         let size = d.panel_icon_size() + 4;
-        let width = d.tray_icons as i32 * (size + GAP) + GAP;
+        let width = tray_count as i32 * (size + GAP) + GAP;
         right -= width;
         let r = Rect::new(right, bar.y + 3, width, bar.h - 6);
         right -= GAP;
@@ -214,6 +221,13 @@ pub fn hit(d: &mut Desktop, x: f64, y: f64) -> Hover {
     if layout.show_desktop.is_some_and(|r| r.contains(x, y)) {
         return Hover::ShowDesktop;
     }
+    if let Some(rect) = layout.tray {
+        let size = d.panel_icon_size() + 4;
+        for index in 0..d.sni_icons.len() {
+            let icon = Rect::new(rect.x + GAP + index as i32 * (size + GAP), rect.y + (rect.h - size) / 2, size, size);
+            if icon.contains(x, y) { return Hover::Tray(index); }
+        }
+    }
     Hover::None
 }
 
@@ -256,6 +270,11 @@ pub fn click(d: &mut Desktop, x: f64, y: f64, button: Button, _time: u32) {
             Button::Right => d.open_popup(Popup::PanelMenu(x as i32)),
             Button::Middle => {}
         },
+        Hover::Tray(index) => {
+            d.requests.push(crate::event::Request::TrayClick {
+                index, button, x: x as i32, y: y as i32,
+            });
+        }
         Hover::ShowDesktop => match button {
             Button::Left => d.show_desktop(),
             Button::Right => d.open_popup(Popup::PanelMenu(x as i32)),
@@ -418,6 +437,21 @@ pub fn draw(d: &mut Desktop, canvas: &mut Canvas<'_>) {
         }
     }
     if let Some(rect) = layout.tray {
+        let size = d.panel_icon_size() + 4;
+        for (index, item) in d.sni_icons.iter().enumerate() {
+            let icon_rect = Rect::new(rect.x + GAP + index as i32 * (size + GAP), rect.y + (rect.h - size) / 2, size, size);
+            if d.hover == Hover::Tray(index) {
+                canvas.fill_rounded(icon_rect.inflate(2), 4.0, ui::hover_bg());
+            }
+            let image = item.pixmap.clone().or_else(|| {
+                if item.icon_name.is_empty() { None } else { d.icons.get(&item.icon_name, (size * d.panel.scale) as u32) }
+            });
+            if let Some(image) = image {
+                canvas.draw_image_fit(&image, icon_rect);
+            } else {
+                canvas.fill_rounded(icon_rect.inflate(-3), 3.0, ui::field_bg());
+            }
+        }
         canvas.fill_rect(
             Rect::new(rect.right() + GAP / 2, rect.y + 4, 1, rect.h - 8),
             ui::separator(),
