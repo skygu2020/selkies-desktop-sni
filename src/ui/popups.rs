@@ -485,13 +485,36 @@ pub fn task_menu_click(d: &mut Desktop, x: f64, y: f64, button: Button) -> bool 
 }
 
 /// A flattened, visible DBusMenu row. Children are indented below parents.
+///
+/// Some applications (notably EasyEffects) publish runs of empty separator
+/// entries and empty structural nodes. Keep at most one separator between
+/// actionable entries, and flatten unlabeled containers without drawing a
+/// blank row for each one.
 fn tray_menu_rows(nodes: &[rustsni::MenuNode], depth: usize, rows: &mut Vec<(i32, String, bool, usize, String, i32, bool)>) {
     for node in nodes.iter().filter(|node| node.visible) {
-        rows.push((node.id, tray_menu_label(&node.label), node.enabled, depth,
-            node.toggle_type.clone(), node.toggle_state, node.is_submenu));
-        if node.is_submenu {
+        let label = tray_menu_label(&node.label);
+        let separator = label.trim().is_empty() || label.trim() == "-";
+
+        if separator {
+            if !rows.is_empty()
+                && rows.last().is_some_and(|row| !row.1.is_empty() && row.1 != "-")
+            {
+                rows.push((node.id, String::new(), false, depth,
+                    String::new(), 0, false));
+            }
+        } else {
+            rows.push((node.id, label, node.enabled, depth,
+                node.toggle_type.clone(), node.toggle_state, node.is_submenu));
+        }
+
+        if node.is_submenu || (label.is_empty() && !node.children.is_empty()) {
             tray_menu_rows(&node.children, depth + 1, rows);
         }
+    }
+
+    // A separator is meaningful only between two menu entries.
+    if rows.last().is_some_and(|row| row.1.is_empty() || row.1 == "-") {
+        rows.pop();
     }
 }
 
