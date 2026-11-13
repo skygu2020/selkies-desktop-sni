@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use tiny_skia::Pixmap;
@@ -277,7 +278,9 @@ pub struct Desktop {
     /// StatusNotifierItem icons, rendered by the panel.
     pub sni_icons: Vec<crate::tray_sni::SniIcon>,
     /// Current DBusMenu tree for the open tray popup.
-    pub tray_menu: Vec<rustsni::MenuNode>,
+    pub tray_menu: Arc<Vec<rustsni::MenuNode>>,
+    /// Whether the current SNI menu request is still in flight.
+    pub tray_menu_loading: bool,
     /// The strip of the bar the tray icons occupy, in panel coordinates.
     pub tray_slot: Option<Rect>,
     /// Whether the tray strip moved since the tray was last placed.
@@ -353,7 +356,8 @@ impl Desktop {
             preview_wallpaper: None,
             tray_icons: 0,
             sni_icons: Vec::new(),
-            tray_menu: Vec::new(),
+            tray_menu: Arc::new(Vec::new()),
+            tray_menu_loading: false,
             tray_slot: None,
             tray_moved: false,
         };
@@ -1302,14 +1306,24 @@ impl Desktop {
         self.panel_dirty = true;
     }
 
-    /// Installs a freshly fetched DBusMenu tree and opens its popup.
-    pub fn set_tray_menu(&mut self, index: usize, nodes: Vec<rustsni::MenuNode>) {
+    /// Opens a compact loading popup while a DBusMenu request runs off-thread.
+    pub fn set_tray_menu_loading(&mut self, index: usize) {
+        self.tray_menu = Arc::new(Vec::new());
+        self.tray_menu_loading = true;
+        self.open_popup(Popup::TrayMenu(index));
+        self.redraw_panel();
+    }
+
+    /// Installs a cached or freshly fetched DBusMenu tree and opens its popup.
+    pub fn set_tray_menu(&mut self, index: usize, nodes: Arc<Vec<rustsni::MenuNode>>) {
         if nodes.is_empty() {
-            self.tray_menu.clear();
+            self.tray_menu = Arc::new(Vec::new());
+            self.tray_menu_loading = false;
             self.close_popup();
             return;
         }
         self.tray_menu = nodes;
+        self.tray_menu_loading = false;
         self.open_popup(Popup::TrayMenu(index));
         self.redraw_panel();
     }
@@ -1322,7 +1336,8 @@ impl Desktop {
         self.popup = Popup::None;
         self.volume_drag = false;
         self.menu.close();
-        self.tray_menu.clear();
+        self.tray_menu = Arc::new(Vec::new());
+        self.tray_menu_loading = false;
         self.settings.close();
         self.requests.push(Request::MenuOpen(false));
         self.set_hover(Hover::None);
