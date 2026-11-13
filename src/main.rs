@@ -15,6 +15,7 @@ mod icons;
 mod ipc;
 mod render;
 mod tray;
+mod tray_sni;
 mod ui;
 mod watch;
 mod wmtheme;
@@ -132,7 +133,17 @@ fn run() -> i32 {
     } else {
         None
     };
-    if debug && tray.is_none() {
+    let mut sni = if desktop.config.show_tray {
+        tray_sni::TraySni::new()
+    } else {
+        None
+    };
+    if let Some(sni) = sni.as_mut() {
+        let scale = backend.panel_origin().2.max(1);
+        sni.poll((desktop.panel_icon_size() * scale) as u32);
+        desktop.set_sni_icons(sni.icons().to_vec());
+    }
+    if debug && tray.is_none() && sni.is_none() {
         eprintln!("selkies-desktop: no system tray host");
     }
 
@@ -158,6 +169,17 @@ fn run() -> i32 {
                 Request::ToggleMute => {
                     if let Some(audio) = audio.as_mut() {
                         audio.toggle_mute();
+                    }
+                }
+                Request::TrayClick { index, button, x, y } => {
+                    if let Some(sni) = sni.as_mut() {
+                        let (ox, oy, scale) = backend.panel_origin();
+                        let button = match button {
+                            event::Button::Left => 1,
+                            event::Button::Middle => 2,
+                            event::Button::Right => 3,
+                        };
+                        sni.click(index, button, ox + x * scale, oy + y * scale);
                     }
                 }
                 other => backend.perform(&other),
@@ -190,6 +212,10 @@ fn run() -> i32 {
                 let r = r.scaled(scale);
                 geom::Rect::new(r.x + ox, r.y + oy, r.w, r.h)
             });
+            let slot = slot.map(|r| {
+                let offset = desktop.sni_icons.len() as i32 * (desktop.panel_icon_size() + 4 + 4);
+                geom::Rect::new(r.x + offset, r.y, (r.w - offset).max(0), r.h)
+            });
             tray.place(slot, (desktop.panel_icon_size() + 4) * scale);
         }
         for id in desktop.window_ids() {
@@ -198,7 +224,20 @@ fn run() -> i32 {
             }
         }
         for request in desktop.take_requests() {
-            backend.perform(&request);
+            match request {
+                Request::TrayClick { index, button, x, y } => {
+                    if let Some(sni) = sni.as_mut() {
+                        let (ox, oy, scale) = backend.panel_origin();
+                        let button = match button {
+                            event::Button::Left => 1,
+                            event::Button::Middle => 2,
+                            event::Button::Right => 3,
+                        };
+                        sni.click(index, button, ox + x * scale, oy + y * scale);
+                    }
+                }
+                other => backend.perform(&other),
+            }
         }
 
         if let Err(error) = backend.prepare() {
@@ -254,6 +293,14 @@ fn run() -> i32 {
         let tray_index = tray.as_ref().map(|t| {
             fds.push(libc::pollfd {
                 fd: t.fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            });
+            fds.len() - 1
+        });
+        let sni_index = sni.as_ref().map(|s| {
+            fds.push(libc::pollfd {
+                fd: s.fd(),
                 events: libc::POLLIN,
                 revents: 0,
             });
@@ -336,6 +383,13 @@ fn run() -> i32 {
             && t.dispatch()
         {
             desktop.set_tray_icons(t.count());
+        }
+        if let Some(index) = sni_index
+            && fds[index].revents & (libc::POLLIN | libc::POLLHUP) != 0
+            && let Some(sni) = sni.as_mut()
+            && sni.poll((desktop.panel_icon_size() * backend.panel_origin().2.max(1)) as u32)
+        {
+            desktop.set_sni_icons(sni.icons().to_vec());
         }
         if fds[files_start..].iter().any(|fd| fd.revents & libc::POLLIN != 0) {
             desktop.files.drain_worker();
