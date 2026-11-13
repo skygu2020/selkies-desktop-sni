@@ -2,7 +2,6 @@
 //! context menu of a taskbar button, and tooltips.
 
 use crate::clock;
-use rustsni::MenuNode;
 use crate::desktop::{Desktop, Hover, Popup};
 use crate::event::{Button, WindowAction};
 use crate::geom::Rect;
