@@ -176,3 +176,32 @@ fn icon_pixmap(icon: &rustsni::IconPixmap) -> Option<Pixmap> {
     }
     Pixmap::from_vec(rgba, IntSize::from_wh(width, height)?)
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn converts_native_bgra_to_tiny_skia_rgba() {
+        // rustsni exposes little-endian ARGB32 as BGRA. The opaque pixel
+        // represents R=0x11, G=0x22, B=0x33.
+        let icon = rustsni::IconPixmap {
+            width: 1,
+            height: 1,
+            data: vec![0x33, 0x22, 0x11, 0xFF],
+        };
+        let pixmap = icon_pixmap(&icon).expect("valid 1x1 SNI pixmap");
+        assert_eq!(pixmap.data(), &[0x11, 0x22, 0x33, 0xFF]);
+    }
+
+    #[test]
+    fn rejects_short_sni_pixmap_data() {
+        let icon = rustsni::IconPixmap {
+            width: 2,
+            height: 2,
+            data: vec![0; 4],
+        };
+        assert!(icon_pixmap(&icon).is_none());
+    }
+}
