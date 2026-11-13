@@ -18,6 +18,7 @@ pub struct SniIcon {
     pub id: ItemId,
     pub title: String,
     pub icon_name: String,
+    pub icon_theme_path: String,
     pub pixmap: Option<Rc<Pixmap>>,
     pub attention_icon_name: String,
     pub attention_pixmap: Option<Rc<Pixmap>>,
@@ -93,6 +94,7 @@ impl TraySni {
                 id: item.id.clone(),
                 title: if item.title.is_empty() { item.item_id.clone() } else { item.title.clone() },
                 icon_name: item.icon_name.clone(),
+                icon_theme_path: item.icon_theme_path.clone(),
                 pixmap,
                 attention_icon_name: item.attention_icon_name.clone(),
                 attention_pixmap,
@@ -139,6 +141,7 @@ fn same_icons(a: &[SniIcon], b: &[SniIcon]) -> bool {
         a.id == b.id
             && a.title == b.title
             && a.icon_name == b.icon_name
+            && a.icon_theme_path == b.icon_theme_path
             && a.attention_icon_name == b.attention_icon_name
             && a.status == b.status
             && a.tooltip == b.tooltip
