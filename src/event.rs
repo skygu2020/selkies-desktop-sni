@@ -172,6 +172,8 @@ pub enum Request {
     SetVolume(u8),
     /// Toggle the default sink's mute.
     ToggleMute,
+    /// Forward a pointer action to a StatusNotifierItem.
+    TrayClick { index: usize, button: Button, x: i32, y: i32 },
     /// Open a file manager window of a size, titled, with the icon a window
     /// manager may show for it.
     OpenWindow {
