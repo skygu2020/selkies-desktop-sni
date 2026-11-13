@@ -338,6 +338,40 @@ fn cycle_windows(d: &mut Desktop, forward: bool) {
 /// # Arguments
 /// * `d` - The desktop.
 /// * `canvas` - The panel canvas.
+/// Resolves an SNI icon against its advertised IconThemePath. The path
+/// usually names a theme root, so the icon may live in a subdirectory listed
+/// by index.theme rather than directly under the root.
+fn custom_sni_icon_path(theme_path: &str, icon_name: &str) -> Option<std::path::PathBuf> {
+    use std::path::Path;
+
+    let root = Path::new(theme_path);
+    let extension = ["png", "svg", "xpm"].iter()
+        .find(|ext| icon_name.ends_with(&format!(".{ext}")));
+    let base = extension.map_or(icon_name, |_| icon_name.rsplit_once('.').map_or(icon_name, |(name, _)| name));
+    let extensions: Vec<&str> = extension.map_or(vec!["png", "svg", "xpm"], |ext| vec![*ext]);
+    let mut directories = Vec::new();
+    if let Ok(index) = std::fs::read_to_string(root.join("index.theme")) {
+        for line in index.lines() {
+            if let Some((key, value)) = line.split_once('=')
+                && key.trim() == "Directories"
+            {
+                directories.extend(value.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned));
+                break;
+            }
+        }
+    }
+    directories.push(String::new());
+    for directory in directories {
+        for ext in &extensions {
+            let candidate = root.join(&directory).join(format!("{base}.{ext}"));
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
 pub fn draw(d: &mut Desktop, canvas: &mut Canvas<'_>) {
     let layout = layout(d);
     let bg = ui::panel_bg(d.config.panel_opacity);
@@ -455,9 +489,8 @@ pub fn draw(d: &mut Desktop, canvas: &mut Canvas<'_>) {
             let custom = if item.icon_theme_path.is_empty() || icon_name.is_empty() || icon_name.starts_with('/') {
                 None
             } else {
-                let path = std::path::Path::new(&item.icon_theme_path).join(icon_name);
-                let path = path.to_string_lossy();
-                d.icons.get(path.as_ref(), icon_size)
+                custom_sni_icon_path(&item.icon_theme_path, icon_name)
+                    .and_then(|path| d.icons.get(path.to_string_lossy().as_ref(), icon_size))
             };
             let themed = custom.or_else(|| {
                 if icon_name.is_empty() { None } else { d.icons.get(icon_name, icon_size) }
