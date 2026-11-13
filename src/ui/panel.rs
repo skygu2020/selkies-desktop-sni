@@ -77,11 +77,9 @@ impl Layout {
             Hover::Volume => self.volume,
             Hover::Clock => self.clock,
             Hover::ShowDesktop => self.show_desktop,
-            Hover::Tray(index) => self.tray.and_then(|r| {
+            Hover::Tray(index) => self.tray.map(|r| {
                 let size = r.h - 6;
-                (index < usize::MAX).then_some(Rect::new(
-                    r.x + GAP + index as i32 * (size + GAP), r.y + (r.h - size) / 2, size, size,
-                ))
+                Rect::new(r.x + GAP + index as i32 * (size + GAP), r.y + 3, size, size)
             }),
             _ => None,
         }
