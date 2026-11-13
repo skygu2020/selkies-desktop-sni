@@ -1191,6 +1191,7 @@ impl Desktop {
             }),
             Hover::Clock => Some(crate::clock::format_now("%A, %B %-d, %Y")),
             Hover::ShowDesktop => Some(tr("Show desktop").to_string()),
+            Hover::Tray(i) => self.sni_icons.get(i).map(|icon| icon.title.clone()),
             Hover::Start => Some(tr("Applications").to_string()),
             Hover::Launcher(i) => self
                 .config
