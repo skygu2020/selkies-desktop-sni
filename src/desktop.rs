@@ -141,6 +141,8 @@ pub enum Popup {
     TaskMenu(usize),
     /// The bar's own right-click menu, by the bar X it opened at.
     PanelMenu(i32),
+    /// A StatusNotifierItem DBusMenu, by SNI snapshot index.
+    TrayMenu(usize),
     /// The settings window.
     Settings,
 }
@@ -172,6 +174,8 @@ pub enum Hover {
     TaskMenuItem(usize),
     /// An item of the bar's right-click menu.
     PanelMenuItem(usize),
+    /// An item of a StatusNotifierItem DBusMenu.
+    TrayMenuItem(usize),
     /// A control of the settings window.
     Control(usize),
     /// A desktop launcher cell.
@@ -272,6 +276,8 @@ pub struct Desktop {
     pub tray_icons: usize,
     /// StatusNotifierItem icons, rendered by the panel.
     pub sni_icons: Vec<crate::tray_sni::SniIcon>,
+    /// Current DBusMenu tree for the open tray popup.
+    pub tray_menu: Vec<rustsni::MenuNode>,
     /// The strip of the bar the tray icons occupy, in panel coordinates.
     pub tray_slot: Option<Rect>,
     /// Whether the tray strip moved since the tray was last placed.
@@ -347,6 +353,7 @@ impl Desktop {
             preview_wallpaper: None,
             tray_icons: 0,
             sni_icons: Vec::new(),
+            tray_menu: Vec::new(),
             tray_slot: None,
             tray_moved: false,
         };
@@ -1295,6 +1302,17 @@ impl Desktop {
         self.panel_dirty = true;
     }
 
+    /// Installs a freshly fetched DBusMenu tree and opens its popup.
+    pub fn set_tray_menu(&mut self, index: usize, nodes: Vec<rustsni::MenuNode>) {
+        if nodes.is_empty() {
+            self.tray_menu.clear();
+            self.close_popup();
+            return;
+        }
+        self.tray_menu = nodes;
+        self.open_popup(Popup::TrayMenu(index));
+    }
+
     /// Closes the open popup.
     pub fn close_popup(&mut self) {
         if self.popup == Popup::None {
@@ -1303,6 +1321,7 @@ impl Desktop {
         self.popup = Popup::None;
         self.volume_drag = false;
         self.menu.close();
+        self.tray_menu.clear();
         self.settings.close();
         self.requests.push(Request::MenuOpen(false));
         self.set_hover(Hover::None);
@@ -1497,6 +1516,7 @@ impl Desktop {
                         Popup::Volume => popups::volume_click(self, x, y, button),
                         Popup::Calendar => popups::calendar_click(self, x, y, button),
                         Popup::TaskMenu(_) => popups::task_menu_click(self, x, y, button),
+                        Popup::TrayMenu(_) => popups::tray_menu_click(self, x, y, button),
                         Popup::PanelMenu(_) => settings::panel_menu_click(self, x, y, button),
                         Popup::Settings => settings::click(self, x, y, button),
                         Popup::None => false,
