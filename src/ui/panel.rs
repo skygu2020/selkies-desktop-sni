@@ -451,11 +451,16 @@ pub fn draw(d: &mut Desktop, canvas: &mut Canvas<'_>) {
             } else {
                 (&item.icon_name, item.pixmap.clone())
             };
-            let themed = if icon_name.is_empty() {
+            let icon_size = (size * d.panel.scale) as u32;
+            let custom = if item.icon_theme_path.is_empty() || icon_name.is_empty() || icon_name.starts_with('/') {
                 None
             } else {
-                d.icons.get(icon_name, (size * d.panel.scale) as u32)
+                let path = std::path::Path::new(&item.icon_theme_path).join(icon_name);
+                d.icons.get(&path.to_string_lossy(), icon_size)
             };
+            let themed = custom.or_else(|| {
+                if icon_name.is_empty() { None } else { d.icons.get(icon_name, icon_size) }
+            });
             let image = themed.or(pixmap);
             if let Some(image) = image {
                 canvas.draw_image_fit(&image, icon_rect);
