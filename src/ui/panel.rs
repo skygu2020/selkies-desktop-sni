@@ -451,11 +451,12 @@ pub fn draw(d: &mut Desktop, canvas: &mut Canvas<'_>) {
             } else {
                 (&item.icon_name, item.pixmap.clone())
             };
-            let image = if icon_name.is_empty() {
+            let themed = if icon_name.is_empty() {
                 None
             } else {
                 d.icons.get(icon_name, (size * d.panel.scale) as u32)
-            }.or(pixmap);
+            };
+            let image = themed.or(pixmap);
             if let Some(image) = image {
                 canvas.draw_image_fit(&image, icon_rect);
             } else {
