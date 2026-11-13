@@ -175,7 +175,7 @@ pub enum Request {
     /// Forward a pointer action to a StatusNotifierItem.
     TrayClick { index: usize, button: Button, x: i32, y: i32 },
     /// Fetch and display the DBusMenu belonging to a tray item.
-    TrayMenuOpen { index: usize },
+    TrayMenuOpen { index: usize, x: i32, y: i32 },
     /// Activate an entry in a tray item's DBusMenu.
     TrayMenuClick { index: usize, menu_id: i32 },
     /// Forward a wheel action to a StatusNotifierItem.
