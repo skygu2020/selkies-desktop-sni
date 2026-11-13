@@ -22,7 +22,7 @@ mod wmtheme;
 mod xkb;
 mod xpm;
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use event::{Event, Request, SurfaceId};
 
@@ -146,6 +146,9 @@ fn run() -> i32 {
     if debug && tray.is_none() && sni.is_none() {
         eprintln!("selkies-desktop: no system tray host");
     }
+    // rustsni also advances timeouts/retries for existing-item discovery from
+    // poll(); keep a short deadline even when the D-Bus fd is temporarily quiet.
+    let mut sni_deadline = sni.as_ref().map(|_| Instant::now() + Duration::from_millis(200));
 
     loop {
         let now = Instant::now();
@@ -157,6 +160,14 @@ fn run() -> i32 {
             && let Some(volume) = audio.poll(now)
         {
             desktop.set_volume(volume);
+        }
+        if sni_deadline.is_some_and(|deadline| now >= deadline) {
+            if let Some(sni) = sni.as_mut()
+                && sni.poll((desktop.panel_icon_size() * backend.panel_origin().2.max(1)) as u32)
+            {
+                desktop.set_sni_icons(sni.icons().to_vec());
+            }
+            sni_deadline = sni.as_ref().map(|_| now + Duration::from_millis(200));
         }
 
         for request in desktop.take_requests() {
@@ -256,7 +267,7 @@ fn run() -> i32 {
         }
 
         let mut deadline = desktop.next_deadline(now);
-        for candidate in [watcher.deadline(), audio.as_ref().map(|a| a.deadline(now))]
+        for candidate in [watcher.deadline(), audio.as_ref().map(|a| a.deadline(now)), sni_deadline]
             .into_iter()
             .flatten()
         {
