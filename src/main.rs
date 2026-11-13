@@ -182,10 +182,15 @@ fn run() -> i32 {
                         audio.toggle_mute();
                     }
                 }
-                Request::TrayMenuOpen { index } => {
+                Request::TrayMenuOpen { index, x, y } => {
                     if let Some(sni) = sni.as_mut() {
                         let nodes = sni.menu(index);
-                        desktop.set_tray_menu(index, nodes);
+                        if nodes.is_empty() {
+                            let (ox, oy, scale) = backend.panel_origin();
+                            sni.click(index, 3, ox + x * scale, oy + y * scale);
+                        } else {
+                            desktop.set_tray_menu(index, nodes);
+                        }
                     }
                 }
                 Request::TrayMenuClick { index, menu_id } => {
@@ -250,10 +255,15 @@ fn run() -> i32 {
         }
         for request in desktop.take_requests() {
             match request {
-                Request::TrayMenuOpen { index } => {
+                Request::TrayMenuOpen { index, x, y } => {
                     if let Some(sni) = sni.as_mut() {
                         let nodes = sni.menu(index);
-                        desktop.set_tray_menu(index, nodes);
+                        if nodes.is_empty() {
+                            let (ox, oy, scale) = backend.panel_origin();
+                            sni.click(index, 3, ox + x * scale, oy + y * scale);
+                        } else {
+                            desktop.set_tray_menu(index, nodes);
+                        }
                     }
                 }
                 Request::TrayMenuClick { index, menu_id } => {
