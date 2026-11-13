@@ -518,17 +518,44 @@ fn tray_menu_data(d: &Desktop) -> Vec<(i32, String, bool, usize, String, i32, bo
     rows
 }
 
+/// Compact vertical layout for tray menu rows. Separators use less height
+/// than actionable entries so native menus do not look excessively spaced.
+const TRAY_MENU_ROW: i32 = 24;
+const TRAY_MENU_SEPARATOR: i32 = 9;
+const TRAY_MENU_PADDING: i32 = 6;
+
+fn tray_menu_row_layout(rows: &[(i32, String, bool, usize, String, i32, bool)]) -> Vec<(i32, i32)> {
+    let mut y = TRAY_MENU_PADDING;
+    rows.iter().map(|(_, label, _, _, _, _, _)| {
+        let height = if label.is_empty() || label == "-" {
+            TRAY_MENU_SEPARATOR
+        } else {
+            TRAY_MENU_ROW
+        };
+        let position = (y, height);
+        y += height;
+        position
+    }).collect()
+}
+
 fn tray_menu_rect(d: &mut Desktop, index: usize) -> Option<Rect> {
     let anchor = panel::layout(d).rect_of(Hover::Tray(index))?;
-    let rows = tray_menu_data(d).len().max(1) as i32;
-    Some(anchor_above(d, anchor, TASK_MENU_WIDTH + 36, (rows * TASK_ROW + 12).min(d.panel.height - 16)))
+    let rows = tray_menu_data(d);
+    let layout = tray_menu_row_layout(&rows);
+    let content_height = layout.last().map(|(y, h)| y + h).unwrap_or(TRAY_MENU_PADDING);
+    let height = (content_height + TRAY_MENU_PADDING).min(d.panel.height - 16);
+    Some(anchor_above(d, anchor, TASK_MENU_WIDTH + 36, height))
 }
 
 fn draw_tray_menu(d: &mut Desktop, canvas: &mut Canvas<'_>, index: usize) -> Option<Rect> {
     let frame = tray_menu_rect(d, index)?;
     ui::draw_popup_frame(canvas, frame);
-    for (row, (_, label, enabled, depth, toggle, state, submenu)) in tray_menu_data(d).into_iter().enumerate() {
-        let rect = Rect::new(frame.x + 6, frame.y + 6 + row as i32 * TASK_ROW, frame.w - 12, TASK_ROW);
+    let rows = tray_menu_data(d);
+    let layout = tray_menu_row_layout(&rows);
+    for (row, ((_, label, enabled, depth, toggle, state, submenu), (y, height))) in
+        rows.into_iter().zip(layout).enumerate()
+    {
+        let rect = Rect::new(frame.x + 6, frame.y + y, frame.w - 12, height);
         if label == "-" || label.is_empty() {
             canvas.fill_rect(Rect::new(rect.x + 8, rect.y + rect.h / 2, rect.w - 16, 1), ui::separator());
             continue;
@@ -553,9 +580,11 @@ pub fn tray_menu_hit(d: &mut Desktop, x: f64, y: f64) -> Option<Hover> {
     let frame = tray_menu_rect(d, index)?;
     if !frame.contains(x, y) { return None; }
     let rows = tray_menu_data(d);
-    let row = ((y - frame.y as f64 - 6.0) / TASK_ROW as f64).floor();
-    if row >= 0.0 && (row as usize) < rows.len() {
-        return Some(Hover::TrayMenuItem(row as usize));
+    for (row, (top, height)) in tray_menu_row_layout(&rows).into_iter().enumerate() {
+        let row_top = frame.y + top;
+        if y >= row_top as f64 && y < (row_top + height) as f64 {
+            return Some(Hover::TrayMenuItem(row));
+        }
     }
     Some(Hover::None)
 }
