@@ -298,6 +298,9 @@ pub fn click(d: &mut Desktop, x: f64, y: f64, button: Button, _time: u32) {
 pub fn scroll(d: &mut Desktop, x: f64, y: f64, delta: f64) {
     match hit(d, x, y) {
         Hover::Volume => d.adjust_volume(if delta < 0.0 { 5 } else { -5 }),
+        Hover::Tray(index) => d.requests.push(crate::event::Request::TrayScroll {
+            index, delta: (-delta).round() as i32,
+        }),
         Hover::Task(_) => cycle_windows(d, delta > 0.0),
         _ => {
             let layout = layout(d);
