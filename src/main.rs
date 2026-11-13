@@ -250,6 +250,15 @@ fn run() -> i32 {
         }
         for request in desktop.take_requests() {
             match request {
+                Request::TrayMenuOpen { index } => {
+                    if let Some(sni) = sni.as_mut() {
+                        let nodes = sni.menu(index);
+                        desktop.set_tray_menu(index, nodes);
+                    }
+                }
+                Request::TrayMenuClick { index, menu_id } => {
+                    if let Some(sni) = sni.as_mut() { sni.menu_click(index, menu_id); }
+                }
                 Request::TrayClick { index, button, x, y } => {
                     if let Some(sni) = sni.as_mut() {
                         let (ox, oy, scale) = backend.panel_origin();
