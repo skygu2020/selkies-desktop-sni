@@ -17,6 +17,7 @@ use crate::render::resize_pixmap;
 pub struct SniIcon {
     pub id: ItemId,
     pub title: String,
+    pub icon_name: String,
     pub pixmap: Option<Rc<Pixmap>>,
     pub item_is_menu: bool,
 }
@@ -82,6 +83,7 @@ impl TraySni {
             next.push(SniIcon {
                 id: item.id.clone(),
                 title: if item.title.is_empty() { item.item_id.clone() } else { item.title.clone() },
+                icon_name: item.icon_name.clone(),
                 pixmap,
                 item_is_menu: item.item_is_menu,
             });
@@ -121,7 +123,7 @@ impl TraySni {
 
 fn same_icons(a: &[SniIcon], b: &[SniIcon]) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(a, b)| {
-        a.id == b.id && a.title == b.title && a.item_is_menu == b.item_is_menu
+        a.id == b.id && a.title == b.title && a.icon_name == b.icon_name && a.item_is_menu == b.item_is_menu
             && match (&a.pixmap, &b.pixmap) {
                 (Some(a), Some(b)) => a.width() == b.width() && a.height() == b.height() && a.data() == b.data(),
                 (None, None) => true,
