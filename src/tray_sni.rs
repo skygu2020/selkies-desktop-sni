@@ -66,7 +66,8 @@ impl TraySni {
         };
         let relevant = events.iter().any(|event| matches!(
             event,
-            TrayEvent::ItemAdded(_) | TrayEvent::ItemChanged(_) | TrayEvent::ItemRemoved(_) | TrayEvent::HostShutdown
+            TrayEvent::ItemAdded(_) | TrayEvent::ItemChanged(_) | TrayEvent::ItemRemoved(_)
+                | TrayEvent::MenuChanged(_) | TrayEvent::MenuActivationRequested(_) | TrayEvent::HostShutdown
         ));
         if !relevant && !self.icons.is_empty() {
             return false;
