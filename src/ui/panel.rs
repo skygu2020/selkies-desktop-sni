@@ -456,7 +456,8 @@ pub fn draw(d: &mut Desktop, canvas: &mut Canvas<'_>) {
                 None
             } else {
                 let path = std::path::Path::new(&item.icon_theme_path).join(icon_name);
-                d.icons.get(&path.to_string_lossy(), icon_size)
+                let path = path.to_string_lossy();
+                d.icons.get(path.as_ref(), icon_size)
             };
             let themed = custom.or_else(|| {
                 if icon_name.is_empty() { None } else { d.icons.get(icon_name, icon_size) }
