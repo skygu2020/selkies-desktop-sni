@@ -1649,6 +1649,7 @@ impl Desktop {
                 Popup::Menu => menu::key(self, key),
                 Popup::Calendar => popups::calendar_key(self, key),
                 Popup::Volume => popups::volume_key(self, key),
+                Popup::TrayMenu(_) => popups::tray_menu_key(self, key),
                 Popup::Settings => settings::key(self, key),
                 _ => {}
             },
