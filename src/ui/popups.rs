@@ -2,6 +2,7 @@
 //! context menu of a taskbar button, and tooltips.
 
 use crate::clock;
+use rustsni::MenuNode;
 use crate::desktop::{Desktop, Hover, Popup};
 use crate::event::{Button, WindowAction};
 use crate::geom::Rect;
@@ -57,6 +58,7 @@ pub fn draw(d: &mut Desktop, canvas: &mut Canvas<'_>) -> Vec<Rect> {
         Popup::Volume => rects.extend(draw_volume(d, canvas)),
         Popup::Calendar => rects.extend(draw_calendar(d, canvas)),
         Popup::TaskMenu(index) => rects.extend(draw_task_menu(d, canvas, index)),
+        Popup::TrayMenu(index) => rects.extend(draw_tray_menu(d, canvas, index)),
         Popup::PanelMenu(x) => rects.push(settings::draw_panel_menu(d, canvas, x)),
         Popup::Settings => rects.push(settings::draw(d, canvas)),
     }
@@ -478,6 +480,79 @@ pub fn task_menu_click(d: &mut Desktop, x: f64, y: f64, button: Button) -> bool 
         && let Some((_, action)) = task_menu_items(d, index).get(row).copied()
     {
         d.window_action(index, action);
+        d.close_popup();
+    }
+    true
+}
+
+/// A flattened, visible DBusMenu row. Children are indented below parents.
+fn tray_menu_rows(nodes: &[rustsni::MenuNode], depth: usize, rows: &mut Vec<(i32, String, bool, usize, String, i32, bool)>) {
+    for node in nodes.iter().filter(|node| node.visible) {
+        rows.push((node.id, node.label.replace('_', ""), node.enabled, depth,
+            node.toggle_type.clone(), node.toggle_state, node.is_submenu));
+        if node.is_submenu {
+            tray_menu_rows(&node.children, depth + 1, rows);
+        }
+    }
+}
+
+fn tray_menu_data(d: &Desktop) -> Vec<(i32, String, bool, usize, String, i32, bool)> {
+    let mut rows = Vec::new();
+    tray_menu_rows(&d.tray_menu, 0, &mut rows);
+    rows
+}
+
+fn tray_menu_rect(d: &mut Desktop, index: usize) -> Option<Rect> {
+    let anchor = panel::layout(d).rect_of(Hover::Tray(index))?;
+    let rows = tray_menu_data(d).len().max(1) as i32;
+    Some(anchor_above(d, anchor, TASK_MENU_WIDTH + 36, (rows * TASK_ROW + 12).min(d.panel.height - 16)))
+}
+
+fn draw_tray_menu(d: &mut Desktop, canvas: &mut Canvas<'_>, index: usize) -> Option<Rect> {
+    let frame = tray_menu_rect(d, index)?;
+    ui::draw_popup_frame(canvas, frame);
+    for (row, (_, label, enabled, depth, toggle, state, submenu)) in tray_menu_data(d).into_iter().enumerate() {
+        let rect = Rect::new(frame.x + 6, frame.y + 6 + row as i32 * TASK_ROW, frame.w - 12, TASK_ROW);
+        if label == "-" || label.is_empty() {
+            canvas.fill_rect(Rect::new(rect.x + 8, rect.y + rect.h / 2, rect.w - 16, 1), ui::separator());
+            continue;
+        }
+        if d.hover == Hover::TrayMenuItem(row) {
+            canvas.fill_rounded(rect, 5.0, ui::hover_bg());
+        }
+        let prefix = if toggle == "checkmark" && state == 1 { "✓ " }
+            else if toggle == "radio" && state == 1 { "● " }
+            else if toggle == "checkmark" || toggle == "radio" { "  " } else { "" };
+        let suffix = if submenu { "  ›" } else { "" };
+        let shown = format!("{prefix}{}{suffix}", label);
+        let text_rect = Rect::new(rect.x + 10 + depth as i32 * 12, rect.y, rect.w - 20 - depth as i32 * 12, rect.h);
+        ui::label(canvas, &mut d.fonts, &shown, text_rect, ui::FONT_SIZE, false,
+            Align::Left, if enabled { ui::text() } else { ui::text_dim() });
+    }
+    Some(frame)
+}
+
+pub fn tray_menu_hit(d: &mut Desktop, x: f64, y: f64) -> Option<Hover> {
+    let Popup::TrayMenu(index) = d.popup else { return None; };
+    let frame = tray_menu_rect(d, index)?;
+    if !frame.contains(x, y) { return None; }
+    let rows = tray_menu_data(d);
+    let row = ((y - frame.y as f64 - 6.0) / TASK_ROW as f64).floor();
+    if row >= 0.0 && (row as usize) < rows.len() {
+        return Some(Hover::TrayMenuItem(row as usize));
+    }
+    Some(Hover::None)
+}
+
+pub fn tray_menu_click(d: &mut Desktop, x: f64, y: f64, button: Button) -> bool {
+    let Popup::TrayMenu(index) = d.popup else { return false; };
+    let Some(hover) = tray_menu_hit(d, x, y) else { return false; };
+    if button == Button::Left
+        && let Hover::TrayMenuItem(row) = hover
+        && let Some((id, _, enabled, _, _, _, submenu)) = tray_menu_data(d).get(row)
+        && *enabled && !submenu
+    {
+        d.requests.push(crate::event::Request::TrayMenuClick { index, menu_id: *id });
         d.close_popup();
     }
     true
