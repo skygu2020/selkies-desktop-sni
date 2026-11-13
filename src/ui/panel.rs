@@ -441,9 +441,18 @@ pub fn draw(d: &mut Desktop, canvas: &mut Canvas<'_>) {
             if d.hover == Hover::Tray(index) {
                 canvas.fill_rounded(icon_rect.inflate(2), 4.0, ui::hover_bg());
             }
-            let image = item.pixmap.clone().or_else(|| {
-                if item.icon_name.is_empty() { None } else { d.icons.get(&item.icon_name, (size * d.panel.scale) as u32) }
-            });
+            let (icon_name, pixmap) = if item.status == "NeedsAttention"
+                && (item.attention_pixmap.is_some() || !item.attention_icon_name.is_empty())
+            {
+                (&item.attention_icon_name, item.attention_pixmap.clone())
+            } else {
+                (&item.icon_name, item.pixmap.clone())
+            };
+            let image = if icon_name.is_empty() {
+                None
+            } else {
+                d.icons.get(icon_name, (size * d.panel.scale) as u32)
+            }.or(pixmap);
             if let Some(image) = image {
                 canvas.draw_image_fit(&image, icon_rect);
             } else {
