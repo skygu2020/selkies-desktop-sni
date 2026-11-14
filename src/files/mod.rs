@@ -206,6 +206,12 @@ pub enum MenuAction {
     NewFile,
     /// Open the selected file in the default text editor.
     Edit,
+    /// Show file properties.
+    Properties(PathBuf),
+    /// Run an executable file.
+    RunFile(PathBuf),
+    /// Run an executable file in a terminal.
+    RunFileTerminal(PathBuf),
     /// Toggle hidden files.
     ToggleHidden,
     /// Switch the view.
@@ -241,6 +247,15 @@ pub struct ContextMenu {
 pub struct Confirm {
     /// The files.
     pub paths: Vec<PathBuf>,
+}
+
+/// File properties currently being inspected or edited.
+#[derive(Clone, Debug)]
+pub struct Properties {
+    /// The file or directory.
+    pub path: PathBuf,
+    /// Unix permission bits (owner/group/other).
+    pub mode: u32,
 }
 
 /// Where a drag over the window would drop.
@@ -311,6 +326,8 @@ pub struct FilesWindow {
     pub menu: Option<ContextMenu>,
     /// The deletion awaiting confirmation.
     pub confirm: Option<Confirm>,
+    /// The properties dialog.
+    pub properties: Option<Properties>,
     /// The picker this window is, if it is one.
     pub picker: Option<Picker>,
     /// The path being typed into the location field.
@@ -513,6 +530,7 @@ impl Manager {
             rename: None,
             menu: None,
             confirm: None,
+            properties: None,
             picker,
             path_edit: None,
             status: None,
