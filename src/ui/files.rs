@@ -755,10 +755,23 @@ pub fn pointer_button(
                 }
             }
             Hit::PathField => {
-                if w.path_edit.is_none() {
+                if let Some(text) = w.path_edit.as_ref() {
+                    let len = text.chars().count();
+                    if w.path_last_click.is_some_and(|last| time.wrapping_sub(last) <= 400) {
+                        w.path_anchor = Some(0);
+                        w.path_cursor = len;
+                    } else {
+                        let field = layout(w).path;
+                        let ratio = ((x - (field.x + 8) as f64) / (field.w - 16).max(1) as f64).clamp(0.0, 1.0);
+                        w.path_cursor = (ratio * len as f64).round() as usize;
+                        w.path_anchor = None;
+                    }
+                    w.path_last_click = Some(time);
+                } else {
                     let text = w.dir.to_string_lossy().to_string();
                     w.path_cursor = text.chars().count();
                     w.path_anchor = None;
+                    w.path_last_click = Some(time);
                     w.path_edit = Some(text);
                 }
             }
