@@ -2140,46 +2140,35 @@ fn draw_field(
     canvas.fill_rounded(rect, 5.0, ui::field_bg());
     canvas.stroke_rounded(rect, 5.0, 1.0, ui::accent());
     let text_rect = Rect::new(rect.x + 8, rect.y, rect.w - 16, rect.h);
-    let width = ui::text_width(&mut d.fonts, text, ui::FONT_SIZE, false, scale);
-    let shown: String = if width > text_rect.w {
-        let mut chars: Vec<char> = text.chars().collect();
-        while !chars.is_empty()
-            && ui::text_width(
-                &mut d.fonts,
-                &chars.iter().collect::<String>(),
-                ui::FONT_SIZE,
-                false,
-                scale,
-            ) > text_rect.w - 4
-        {
-            chars.remove(0);
-        }
-        chars.into_iter().collect()
-    } else {
-        text.to_string()
-    };
     let chars: Vec<char> = text.chars().collect();
     let cursor = cursor.min(chars.len());
     let (start, end) = anchor.map_or((cursor, cursor), |a| (a.min(cursor), a.max(cursor)));
-    let first = chars.len().saturating_sub(shown.chars().count());
-    let shown = chars[first..].iter().collect::<String>();
-    let prefix_width = |fonts: &mut Fonts, end: usize| {
-        let value: String = chars[first..end.min(chars.len())].iter().collect();
+    let prefix_width = |fonts: &mut Fonts, from: usize, to: usize| {
+        let value: String = chars[from.min(chars.len())..to.min(chars.len())].iter().collect();
         ui::text_width(fonts, &value, ui::FONT_SIZE, false, scale)
     };
-    let last = chars.len();
+    let mut first = 0usize;
+    while first < cursor && prefix_width(&mut d.fonts, first, cursor) > text_rect.w - 4 {
+        first += 1;
+    }
+    let mut last = first;
+    while last < chars.len() && prefix_width(&mut d.fonts, first, last + 1) <= text_rect.w - 4 {
+        last += 1;
+    }
+    let shown: String = chars[first..last].iter().collect();
+    let x_at = |fonts: &mut Fonts, index: usize| text_rect.x + prefix_width(fonts, first, index);
     canvas.clip(text_rect);
     if end > start {
         let a = start.max(first).min(last);
         let b = end.max(first).min(last);
         if b > a {
-            let x1 = text_rect.x + prefix_width(&mut d.fonts, a);
-            let x2 = text_rect.x + prefix_width(&mut d.fonts, b);
+            let x1 = x_at(&mut d.fonts, a);
+            let x2 = x_at(&mut d.fonts, b);
             canvas.fill_rect(Rect::new(x1, text_rect.y + 3, x2 - x1, text_rect.h - 6), ui::accent());
         }
     }
     ui::label(canvas, &mut d.fonts, &shown, text_rect, ui::FONT_SIZE, false, Align::Left, ui::text());
-    let caret_x = text_rect.x + prefix_width(&mut d.fonts, cursor.max(first).min(last));
+    let caret_x = x_at(&mut d.fonts, cursor.max(first).min(last));
     if caret_visible {
         canvas.fill_rect(Rect::new(caret_x + 1, text_rect.y + 7, 1, text_rect.h - 14), ui::text());
     }
