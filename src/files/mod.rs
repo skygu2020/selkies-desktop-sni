@@ -179,6 +179,13 @@ pub struct Rename {
     pub index: usize,
     /// The text typed so far.
     pub text: String,
+    /// Character cursor and optional selection anchor.
+    pub cursor: usize,
+    pub anchor: Option<usize>,
+    /// Last click time, used to detect double-click selection.
+    pub last_click: Option<u32>,
+    /// Whether the pointer is currently extending a selection.
+    pub selecting: bool,
     /// Whether the insertion caret is currently visible.
     pub caret_visible: bool,
     /// When the caret should next change visibility.
