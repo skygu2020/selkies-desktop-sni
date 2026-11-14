@@ -2651,7 +2651,7 @@ fn draw_list(
                 w.rename
                     .as_ref()
                     .filter(|r| r.index == i)
-                    .map(|r| (r.text.clone(), r.caret_visible)),
+                    .map(|r| (r.text.clone(), r.cursor, r.anchor, r.caret_visible)),
             )
         };
         let cut = cut_paths.contains(&item.path);
