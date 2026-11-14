@@ -1324,6 +1324,10 @@ fn perform(d: &mut Desktop, id: u32, action: MenuAction) {
                 w.rename = Some(Rename {
                     index,
                     text: item.name.clone(),
+                    cursor: item.name.chars().count(),
+                    anchor: None,
+                    last_click: None,
+                    selecting: false,
                     caret_visible: true,
                     blink_at: Instant::now() + std::time::Duration::from_millis(500),
                 });
@@ -1409,6 +1413,10 @@ fn new_folder(d: &mut Desktop, id: u32) {
         w.rename = Some(Rename {
             index,
             text: files::ops::file_name(&path),
+            cursor: files::ops::file_name(&path).chars().count(),
+            anchor: None,
+            last_click: None,
+            selecting: false,
             caret_visible: true,
             blink_at: Instant::now() + std::time::Duration::from_millis(500),
         });
@@ -2048,6 +2056,8 @@ fn draw_field(
     rect: Rect,
     text: &str,
     scale: i32,
+    cursor: usize,
+    anchor: Option<usize>,
     caret_visible: bool,
 ) {
     canvas.fill_rounded(rect, 5.0, ui::field_bg());
@@ -2071,24 +2081,32 @@ fn draw_field(
     } else {
         text.to_string()
     };
-    ui::label(
-        canvas,
-        &mut d.fonts,
-        &shown,
-        text_rect,
-        ui::FONT_SIZE,
-        false,
-        Align::Left,
-        ui::text(),
-    );
-    let caret_x =
-        text_rect.x + ui::text_width(&mut d.fonts, &shown, ui::FONT_SIZE, false, scale).min(text_rect.w - 2);
-    if caret_visible {
-        canvas.fill_rect(
-            Rect::new(caret_x + 1, text_rect.y + 7, 1, text_rect.h - 14),
-            ui::text(),
-        );
+    let chars: Vec<char> = text.chars().collect();
+    let cursor = cursor.min(chars.len());
+    let (start, end) = anchor.map_or((cursor, cursor), |a| (a.min(cursor), a.max(cursor)));
+    let first = chars.len().saturating_sub(shown.chars().count());
+    let shown = chars[first..].iter().collect::<String>();
+    let prefix_width = |fonts: &mut Fonts, end: usize| {
+        let value: String = chars[first..end.min(chars.len())].iter().collect();
+        ui::text_width(fonts, &value, ui::FONT_SIZE, false, scale)
+    };
+    let last = chars.len();
+    canvas.clip(text_rect);
+    if end > start {
+        let a = start.max(first).min(last);
+        let b = end.max(first).min(last);
+        if b > a {
+            let x1 = text_rect.x + prefix_width(&mut d.fonts, a);
+            let x2 = text_rect.x + prefix_width(&mut d.fonts, b);
+            canvas.fill_rect(Rect::new(x1, text_rect.y + 3, x2 - x1, text_rect.h - 6), ui::accent());
+        }
     }
+    ui::label(canvas, &mut d.fonts, &shown, text_rect, ui::FONT_SIZE, false, Align::Left, ui::text());
+    let caret_x = text_rect.x + prefix_width(&mut d.fonts, cursor.max(first).min(last));
+    if caret_visible {
+        canvas.fill_rect(Rect::new(caret_x + 1, text_rect.y + 7, 1, text_rect.h - 14), ui::text());
+    }
+    canvas.reset_clip();
 }
 
 /// Draws a push button.
@@ -2403,7 +2421,7 @@ fn draw_grid(
                 w.rename
                     .as_ref()
                     .filter(|r| r.index == i)
-                    .map(|r| (r.text.clone(), r.caret_visible)),
+                     .map(|r| (r.text.clone(), r.cursor, r.anchor, r.caret_visible)),
             )
         };
         let cut = cut_paths.contains(&item.path);
@@ -2449,9 +2467,9 @@ fn draw_grid(
             }
         }
         let text_top = icon_rect.bottom() + 6;
-        if let Some((text, caret_visible)) = renaming {
+        if let Some((text, cursor, anchor, caret_visible)) = renaming {
             let field = Rect::new(cell.x + 2, text_top - 2, cell.w - 4, 24);
-            draw_field(canvas, d, field, &text, scale, caret_visible);
+            draw_field(canvas, d, field, &text, scale, cursor, anchor, caret_visible);
             continue;
         }
         let color = if cut { ui::text_dim() } else { ui::text() };
@@ -2585,13 +2603,15 @@ fn draw_list(
                     }
                     let name_rect =
                         Rect::new(icon_rect.right() + 8, row.y, col.w - ui::ICON_SIZE - 16, row.h);
-                    if let Some((text, caret_visible)) = &renaming {
+                    if let Some((text, cursor, anchor, caret_visible)) = &renaming {
                         draw_field(
                             canvas,
                             d,
                             Rect::new(name_rect.x - 4, row.y + 2, name_rect.w, row.h - 4),
                             text,
                             scale,
+                            *cursor,
+                            *anchor,
                             *caret_visible,
                         );
                     } else {
