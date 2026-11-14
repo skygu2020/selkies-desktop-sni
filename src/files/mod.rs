@@ -202,6 +202,10 @@ pub enum MenuAction {
     Delete,
     /// Create a folder.
     NewFolder,
+    /// Create an empty file.
+    NewFile,
+    /// Open the selected file in the default text editor.
+    Edit,
     /// Toggle hidden files.
     ToggleHidden,
     /// Switch the view.
