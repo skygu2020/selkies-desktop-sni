@@ -790,14 +790,27 @@ pub fn pointer_button(
     {
         let geometry = layout(w);
         let field = rename_field_rect(w, &geometry, item_index);
-        let ratio = ((x - (field.x + 6) as f64) / (field.w - 12).max(1) as f64).clamp(0.0, 1.0);
+        let (text, old_cursor, last_click) = {
+            let rename = w.rename.as_ref().unwrap();
+            (rename.text.clone(), rename.cursor, rename.last_click)
+        };
+        let scale = w.geometry.scale;
+        let inner_x = field.x + 8;
+        let inner_w = (field.w - 16).max(1);
+        let chars: Vec<char> = text.chars().collect();
+        let mut first = 0usize;
+        while first < old_cursor.min(chars.len()) {
+            let visible: String = chars[first..old_cursor.min(chars.len())].iter().collect();
+            if ui::text_width(&mut d.fonts, &visible, ui::FONT_SIZE, false, scale) <= inner_w - 4 { break; }
+            first += 1;
+        }
+        let next_cursor = text_cursor_at_x(&mut d.fonts, &text, first, inner_x, inner_w, x, scale);
         let rename = w.rename.as_mut().unwrap();
-        let len = rename.text.chars().count();
-        if rename.last_click.is_some_and(|last| time.wrapping_sub(last) <= 400) {
+        if last_click.is_some_and(|last| time.wrapping_sub(last) <= 400) {
             rename.anchor = Some(0);
-            rename.cursor = len;
+            rename.cursor = chars.len();
         } else {
-            rename.cursor = (ratio * len as f64).round() as usize;
+            rename.cursor = next_cursor;
             rename.anchor = None;
         }
         rename.last_click = Some(time);
@@ -886,14 +899,28 @@ pub fn pointer_button(
             }
             Hit::PathField => {
                 if let Some(text) = w.path_edit.as_ref() {
-                    let len = text.chars().count();
+                    let chars: Vec<char> = text.chars().collect();
                     if w.path_last_click.is_some_and(|last| time.wrapping_sub(last) <= 400) {
                         w.path_anchor = Some(0);
-                        w.path_cursor = len;
+                        w.path_cursor = chars.len();
                     } else {
                         let field = layout(w).path;
-                        let ratio = ((x - (field.x + 8) as f64) / (field.w - 16).max(1) as f64).clamp(0.0, 1.0);
-                        w.path_cursor = (ratio * len as f64).round() as usize;
+                        let inner_x = field.x + 8;
+                        let inner_w = (field.w - 16).max(1);
+                        let scale = w.geometry.scale;
+                        let prefix_width = |fonts: &mut Fonts, end: usize| {
+                            let value: String = chars[..end.min(chars.len())].iter().collect();
+                            ui::text_width(fonts, &value, ui::FONT_SIZE, false, scale)
+                        };
+                        let full_width = prefix_width(&mut d.fonts, chars.len());
+                        let mut first = 0usize;
+                        while first < w.path_cursor.min(chars.len())
+                            && full_width > inner_w - 4
+                            && prefix_width(&mut d.fonts, w.path_cursor.min(chars.len())) - prefix_width(&mut d.fonts, first) > inner_w - 4
+                        {
+                            first += 1;
+                        }
+                        w.path_cursor = text_cursor_at_x(&mut d.fonts, text, first, inner_x, inner_w, x, scale);
                         w.path_anchor = None;
                     }
                     w.path_last_click = Some(time);
