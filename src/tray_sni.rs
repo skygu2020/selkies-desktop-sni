@@ -41,7 +41,11 @@ impl TraySni {
         let mut host = match TrayHost::new() {
             Ok(host) => host,
             Err(error) => {
-                eprintln!("selkies-desktop: cannot start StatusNotifier host: {error}");
+                if error.to_string().contains("another StatusNotifierWatcher is already running") {
+                    eprintln!("selkies-desktop: another StatusNotifierWatcher is active; keeping it in place and continuing without the SNI host");
+                } else {
+                    eprintln!("selkies-desktop: cannot start StatusNotifier host: {error}");
+                }
                 return None;
             }
         };
@@ -154,6 +158,16 @@ impl TraySni {
         let Some(icon) = self.icons.get(index) else { return; };
         if let Err(error) = self.host.scroll(&icon.id, delta, if horizontal { "horizontal" } else { "vertical" }) {
             eprintln!("selkies-desktop: tray scroll for {} failed: {error}", icon.id);
+        }
+    }
+}
+
+impl Drop for TraySni {
+    fn drop(&mut self) {
+        // Notify tray items that this host is leaving before the D-Bus
+        // connection is dropped and releases the watcher name.
+        if let Err(error) = self.host.shutdown() {
+            eprintln!("selkies-desktop: cannot shut down StatusNotifier host cleanly: {error}");
         }
     }
 }
