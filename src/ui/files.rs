@@ -1031,7 +1031,12 @@ pub fn pointer_button(
             Hit::PickerButton(_) => {
                 if let Some(picker) = w.picker.clone() {
                     if let PickTarget::Extract { window, archive } = picker.target {
-                        let dest = w.dir.clone();
+                        let dest = w.cursor
+                            .filter(|cursor| w.selection.contains(cursor))
+                            .and_then(|cursor| w.items.get(cursor))
+                            .filter(|item| item.is_dir)
+                            .map(|item| item.path.clone())
+                            .unwrap_or_else(|| w.dir.clone());
                         close(d, id);
                         d.files.extract(window, archive, dest);
                     } else if let Some(cursor) = w.cursor.filter(|c| w.selection.contains(c)) {
@@ -3079,7 +3084,13 @@ fn draw_footer(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, footer: R
             Some(PickTarget::Extract { .. })
         );
         let chosen = if extract {
-            Some(w.dir.to_string_lossy().to_string())
+            let dest = w.cursor
+                .filter(|cursor| w.selection.contains(cursor))
+                .and_then(|cursor| w.items.get(cursor))
+                .filter(|item| item.is_dir)
+                .map(|item| item.path.clone())
+                .unwrap_or_else(|| w.dir.clone());
+            Some(dest.to_string_lossy().to_string())
         } else {
             w.cursor
                 .filter(|c| w.selection.contains(c))
