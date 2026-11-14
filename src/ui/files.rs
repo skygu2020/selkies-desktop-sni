@@ -529,15 +529,20 @@ pub fn hit(d: &mut Desktop, id: u32, x: f64, y: f64) -> Hit {
 pub fn pointer_motion(d: &mut Desktop, id: u32, x: f64, y: f64) {
     let places = d.files.places.len();
     if let Some(w) = d.files.window_mut(id)
-        && let Some(rename) = w.rename.as_mut()
-        && rename.selecting
+        && w.rename.as_ref().is_some_and(|rename| rename.selecting)
     {
-        let field = item_rect(w, layout(w).content, rename.index);
+        let field = {
+            let geometry = layout(w);
+            let index = w.rename.as_ref().map(|rename| rename.index).unwrap_or(0);
+            item_rect(w, geometry.content, index)
+        };
         let ratio = ((x - (field.x + 6) as f64) / (field.w - 12).max(1) as f64).clamp(0.0, 1.0);
-        if rename.anchor.is_none() { rename.anchor = Some(rename.cursor); }
-        rename.cursor = (ratio * rename.text.chars().count() as f64).round() as usize;
-        rename.caret_visible = true;
-        rename.blink_at = Instant::now() + std::time::Duration::from_millis(500);
+        if let Some(rename) = w.rename.as_mut() {
+            if rename.anchor.is_none() { rename.anchor = Some(rename.cursor); }
+            rename.cursor = (ratio * rename.text.chars().count() as f64).round() as usize;
+            rename.caret_visible = true;
+            rename.blink_at = Instant::now() + std::time::Duration::from_millis(500);
+        }
         w.dirty = true;
         return;
     }
@@ -705,11 +710,12 @@ pub fn pointer_button(
     w.dirty = true;
     if button == Button::Left
         && let Hit::Item(item_index) = hit
-        && let Some(rename) = w.rename.as_mut()
-        && rename.index == item_index
+        && w.rename.as_ref().is_some_and(|rename| rename.index == item_index)
     {
-        let field = item_rect(w, layout(w).content, item_index);
+        let geometry = layout(w);
+        let field = item_rect(w, geometry.content, item_index);
         let ratio = ((x - (field.x + 6) as f64) / (field.w - 12).max(1) as f64).clamp(0.0, 1.0);
+        let rename = w.rename.as_mut().unwrap();
         let len = rename.text.chars().count();
         if rename.last_click.is_some_and(|last| time.wrapping_sub(last) <= 400) {
             rename.anchor = Some(0);
@@ -1632,6 +1638,8 @@ pub fn key(d: &mut Desktop, id: u32, key: Key, modifiers: Modifiers) {
         return;
     }
     if w.rename.is_some() {
+        if key == Key::Enter { commit_rename(d, id); return; }
+        if key == Key::Escape { w.rename = None; return; }
         let rename = w.rename.as_mut().unwrap();
         let mut chars: Vec<char> = rename.text.chars().collect();
         let len = chars.len();
@@ -1666,8 +1674,7 @@ pub fn key(d: &mut Desktop, id: u32, key: Key, modifiers: Modifiers) {
                 if modifiers.shift { if rename.anchor.is_none() { rename.anchor = Some(cursor); } }
                 else { rename.anchor = None; }
             }
-            Key::Enter => { commit_rename(d, id); return; }
-            Key::Escape => { w.rename = None; return; }
+            Key::Enter | Key::Escape => unreachable!(),
             _ => {}
         }
         rename.text = chars.iter().collect();
