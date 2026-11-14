@@ -181,3 +181,6 @@ Cannot read file properties = 无法读取文件属性
 Cannot change permissions: {error} = 无法更改权限：{error}
 Run = 运行
 Run in terminal = 在终端中运行
+Edit = 编辑
+New file = 新建文件
+No text editor is installed = 未安装文本编辑器
