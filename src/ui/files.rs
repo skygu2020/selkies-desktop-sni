@@ -1006,7 +1006,7 @@ fn executable_command(path: &Path) -> Vec<String> {
     let executable = std::fs::metadata(path)
         .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
         .unwrap_or(false);
-    let is_shell_script = path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("sh"));
+    let is_shell_script = path.extension().is_some_and(|ext| ext.to_string_lossy().eq_ignore_ascii_case("sh"));
     if is_shell_script && !executable {
         vec!["/bin/sh".to_string(), path.to_string_lossy().to_string()]
     } else {
