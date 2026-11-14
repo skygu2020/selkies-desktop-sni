@@ -231,7 +231,7 @@ pub enum MenuAction {
 pub enum MenuRow {
     /// A clickable action.
     Action(String, MenuAction, bool),
-    /// A separator.
+    /// A separator line.
     Separator,
 }
 
@@ -504,7 +504,7 @@ impl Manager {
     ///
     /// # Arguments
     /// * `dir` - The folder, or `None` for the home directory.
-    /// * `picker` - What the window picks for, when it is one.
+    /// * `picker` - What the window picks for, when it is a picker.
     /// * `defaults` - The view, sort and hidden setting to start with.
     ///
     /// # Returns
@@ -549,12 +549,12 @@ impl Manager {
             shown_title: String::new(),
         };
         self.load_dir(&mut window, &dir);
-        window.history.push(dir);
+        window.history.push(window.dir.clone());
         self.windows.push(window);
         id
     }
 
-    /// Closes a window and drops its watch.
+    /// Forgets a window.
     pub fn close(&mut self, id: u32) {
         if let Some(index) = self.windows.iter().position(|w| w.id == id) {
             let window = self.windows.remove(index);
@@ -562,17 +562,23 @@ impl Manager {
         }
     }
 
-    /// Reads the contents of a folder into a window.
+    /// Reads a folder into a window, replacing what it showed.  A folder that
+    /// cannot be read leaves the window where it was with a message.
     fn load_dir(&mut self, window: &mut FilesWindow, dir: &Path) {
-        if window.watch >= 0 {
-            self.unwatch(window.watch);
-        }
-        window.dir = dir.to_path_buf();
-        window.watch = self.watch(dir);
-        match read_dir(dir) {
+        let dir = dir.to_path_buf();
+        match read_dir(&dir, &self.mime) {
             Ok(items) => {
+                self.unwatch(window.watch);
+                window.watch = self.watch(&dir);
+                window.dir = dir;
                 window.all = items;
+                window.selection.clear();
+                window.cursor = None;
                 window.scroll = 0.0;
+                window.filter.clear();
+                window.rename = None;
+                window.menu = None;
+                window.press = None;
                 window.rescan_at = None;
                 window.refilter();
             }
@@ -593,111 +599,105 @@ impl Manager {
             return;
         };
         let mut window = self.windows.remove(index);
-        if dir.is_dir() {
-            self.load_dir(&mut window, dir);
+        let before = window.dir.clone();
+        self.load_dir(&mut window, dir);
+        if window.dir != before {
             window.history.truncate(window.history_pos + 1);
-            if window.history.last() != Some(&window.dir) {
-                window.history.push(window.dir.clone());
-            }
+            window.history.push(window.dir.clone());
             window.history_pos = window.history.len() - 1;
-            window.selection.clear();
-            window.cursor = None;
         }
         self.windows.insert(index, window);
     }
 
-    /// Steps back or forward in the history.
+    /// Moves through a window's history.
     ///
     /// # Arguments
     /// * `id` - The window.
-    /// * `direction` - -1 for back, 1 for forward.
-    pub fn step_history(&mut self, id: u32, direction: i32) {
+    /// * `by` - Steps, negative for back.
+    pub fn step_history(&mut self, id: u32, by: i32) {
         let Some(index) = self.windows.iter().position(|w| w.id == id) else {
             return;
         };
         let mut window = self.windows.remove(index);
-        let target = window.history_pos as i32 + direction;
+        let target = window.history_pos as i32 + by;
         if target >= 0 && (target as usize) < window.history.len() {
             window.history_pos = target as usize;
             let dir = window.history[window.history_pos].clone();
             self.load_dir(&mut window, &dir);
-            window.selection.clear();
-            window.cursor = None;
         }
         self.windows.insert(index, window);
     }
 
-    /// Refreshes a window's folder.
+    /// Reads a window's folder again, keeping the selection and scroll.
+    ///
+    /// # Arguments
+    /// * `id` - The window.
     pub fn refresh(&mut self, id: u32) {
-        let Some(index) = self.windows.iter().position(|w| w.id == id) else {
+        let Some(window) = self.windows.iter_mut().find(|w| w.id == id) else {
             return;
         };
-        let mut window = self.windows.remove(index);
-        let selected = window.selected_paths();
-        self.load_dir(&mut window, &window.dir.clone());
-        window.selection = window
-            .items
-            .iter()
-            .enumerate()
-            .filter(|(_, item)| selected.contains(&item.path))
-            .map(|(i, _)| i)
-            .collect();
-        self.windows.insert(index, window);
+        window.rescan_at = None;
+        let dir = window.dir.clone();
+        if let Ok(items) = read_dir(&dir, &self.mime) {
+            window.all = items;
+            window.refilter();
+        } else if let Some(index) = self.windows.iter().position(|w| w.id == id) {
+            let mut window = self.windows.remove(index);
+            let home = config::home();
+            self.load_dir(&mut window, &home);
+            self.windows.insert(index, window);
+        }
     }
 
-    /// Adds an inotify watch to a folder.
-    fn watch(&self, path: &Path) -> i32 {
+    /// Adds an inotify watch on a folder.
+    fn watch(&self, dir: &Path) -> i32 {
         if self.inotify < 0 {
             return -1;
         }
-        let Ok(path) = CString::new(path.as_os_str().as_bytes()) else {
+        let Ok(c_path) = CString::new(dir.as_os_str().as_bytes()) else {
             return -1;
         };
+        let mask = libc::IN_CREATE
+            | libc::IN_DELETE
+            | libc::IN_MOVED_FROM
+            | libc::IN_MOVED_TO
+            | libc::IN_CLOSE_WRITE
+            | libc::IN_ATTRIB
+            | libc::IN_DELETE_SELF
+            | libc::IN_MOVE_SELF;
+        unsafe { libc::inotify_add_watch(self.inotify, c_path.as_ptr(), mask) }
+    }
+
+    /// Removes a watch unless another window still uses it.
+    fn unwatch(&self, wd: i32) {
+        if wd < 0 || self.inotify < 0 {
+            return;
+        }
+        if self.windows.iter().filter(|w| w.watch == wd).count() > 1 {
+            return;
+        }
         unsafe {
-            libc::inotify_add_watch(
-                self.inotify,
-                path.as_ptr(),
-                libc::IN_CREATE
-                    | libc::IN_DELETE
-                    | libc::IN_MOVED_FROM
-                    | libc::IN_MOVED_TO
-                    | libc::IN_CLOSE_WRITE
-                    | libc::IN_ATTRIB
-                    | libc::IN_DELETE_SELF
-                    | libc::IN_MOVE_SELF,
-            )
+            libc::inotify_rm_watch(self.inotify, wd);
         }
     }
 
-    /// Removes a watch.
-    fn unwatch(&self, watch: i32) {
-        if watch >= 0 {
-            unsafe { libc::inotify_rm_watch(self.inotify, watch) };
-        }
-    }
-
-    /// Reads inotify events and schedules rescans.
-    pub fn read_events(&mut self) -> bool {
+    /// Reads the queued watch notifications and schedules the affected
+    /// windows' rescans.
+    pub fn drain_watch(&mut self) {
         if self.inotify < 0 {
-            return false;
+            return;
         }
-        let mut buf = [0u8; 8192];
-        let mut changed = HashSet::new();
+        let mut buf = [0u8; 4096];
+        let mut changed: Vec<i32> = Vec::new();
         loop {
-            let n = unsafe {
-                libc::read(
-                    self.inotify,
-                    buf.as_mut_ptr() as *mut libc::c_void,
-                    buf.len(),
-                )
-            };
-            if n <= 0 {
+            let read = unsafe { libc::read(self.inotify, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
+            if read <= 0 {
                 break;
             }
-            let mut offset = 0;
-            while offset + std::mem::size_of::<libc::inotify_event>() <= n as usize {
+            let mut offset = 0usize;
+            while offset + std::mem::size_of::<libc::inotify_event>() <= read as usize {
                 let event = unsafe { &*(buf.as_ptr().add(offset) as *const libc::inotify_event) };
-                changed.insert(event.wd);
+                changed.push(event.wd);
                 offset += std::mem::size_of::<libc::inotify_event>() + event.len as usize;
             }
         }
@@ -707,17 +707,25 @@ impl Manager {
                 window.rescan_at = Some(due);
             }
         }
-        !changed.is_empty()
     }
 
     /// Takes the messages the workers sent and applies them: progress and
-    /// results to their operations, thumbnails to the cache.
+    /// results to their windows, thumbnails to the cache.
+    ///
+    /// # Returns
+    /// Whether anything on screen changed.
     pub fn drain_worker(&mut self) -> bool {
         let messages = self.worker.drain();
-        let changed = !messages.is_empty();
+        let mut changed = false;
         for message in messages {
+            changed = true;
             match message {
-                Message::Progress { id, done, total, current } => {
+                Message::Progress {
+                    id,
+                    done,
+                    total,
+                    current,
+                } => {
                     if let Some(window_id) = self.operations.get(&id).copied()
                         && let Some(window) = self.window_mut(window_id)
                     {
@@ -730,10 +738,12 @@ impl Manager {
                         && let Some(window) = self.window_mut(window_id)
                     {
                         window.progress = None;
-                        if !errors.is_empty() {
-                            let first = errors.first().cloned().unwrap_or_default();
+                        if let Some(first) = errors.first() {
                             let more = if errors.len() > 1 {
-                                format!(" (+{} more)", errors.len() - 1)
+                                format!(
+                                    " {}",
+                                    trf("(and {n} more)", &[("n", &(errors.len() - 1).to_string())])
+                                )
                             } else {
                                 String::new()
                             };
@@ -805,5 +815,377 @@ impl Manager {
             }
         }
         deadline
+    }
+
+    /// A thumbnail for an image, decoded in the background on first request.
+    ///
+    /// # Arguments
+    /// * `item` - The image file.
+    /// * `size` - Longer side in physical pixels.
+    ///
+    /// # Returns
+    /// The thumbnail once it is ready.
+    pub fn thumbnail(&mut self, item: &Item, size: u32) -> Option<Rc<Pixmap>> {
+        let key = ThumbKey {
+            path: item.path.clone(),
+            modified: item.modified,
+            size,
+        };
+        if let Some(cached) = self.thumbs.get(&key) {
+            return cached.clone();
+        }
+        self.worker.request_thumbnail(key);
+        None
+    }
+
+    /// Queues copying or moving files into a folder for a window.
+    ///
+    /// # Arguments
+    /// * `window` - The window that reports the progress.
+    /// * `sources` - The files.
+    /// * `dest` - The folder.
+    /// * `moving` - Whether to move rather than copy.
+    pub fn transfer(&mut self, window: u32, sources: Vec<PathBuf>, dest: PathBuf, moving: bool) {
+        if sources.is_empty() {
+            return;
+        }
+        let id = self.worker.submit(|id| {
+            if moving {
+                ops::Job::Move { id, sources, dest }
+            } else {
+                ops::Job::Copy { id, sources, dest }
+            }
+        });
+        self.operations.insert(id, window);
+    }
+
+    /// Queues deleting files for a window.
+    ///
+    /// # Arguments
+    /// * `window` - The window that reports the progress.
+    /// * `paths` - The files.
+    pub fn delete(&mut self, window: u32, paths: Vec<PathBuf>) {
+        if paths.is_empty() {
+            return;
+        }
+        let id = self.worker.submit(|id| ops::Job::Delete { id, paths });
+        self.operations.insert(id, window);
+    }
+}
+
+impl Drop for Manager {
+    fn drop(&mut self) {
+        if self.inotify >= 0 {
+            unsafe {
+                libc::close(self.inotify);
+            }
+        }
+    }
+}
+
+/// Reads a folder's entries.
+///
+/// # Arguments
+/// * `dir` - The folder.
+/// * `mime` - The mime database that types the files.
+///
+/// # Errors
+/// The folder cannot be read.
+pub fn read_dir(dir: &Path, mime: &MimeDb) -> std::io::Result<Vec<Item>> {
+    let read = std::fs::read_dir(dir)?;
+    let hidden_list: HashSet<String> = std::fs::read_to_string(dir.join(".hidden"))
+        .map(|text| text.lines().map(|l| l.trim().to_string()).collect())
+        .unwrap_or_default();
+    let mut items = Vec::new();
+    for entry in read.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let path = entry.path();
+        let Ok(link_metadata) = entry.metadata() else {
+            continue;
+        };
+        let is_symlink = link_metadata.file_type().is_symlink();
+        let metadata = if is_symlink {
+            std::fs::metadata(&path).unwrap_or(link_metadata)
+        } else {
+            link_metadata
+        };
+        let is_dir = metadata.is_dir();
+        items.push(Item {
+            mime: mime.type_of(&name, is_dir),
+            hidden: name.starts_with('.') || name.ends_with('~') || hidden_list.contains(&name),
+            executable: !is_dir && metadata.permissions().mode() & 0o111 != 0,
+            size: if is_dir { 0 } else { metadata.len() },
+            modified: metadata.mtime(),
+            name,
+            path,
+            is_dir,
+            is_symlink,
+        });
+    }
+    Ok(items)
+}
+
+/// Sorts items by a key, folders always ahead of files.
+///
+/// # Arguments
+/// * `items` - The items.
+/// * `key` - The sort key.
+/// * `ascending` - Whether to sort ascending.
+pub fn sort_items(items: &mut [Item], key: SortKey, ascending: bool) {
+    items.sort_by(|a, b| {
+        let folders = b.is_dir.cmp(&a.is_dir);
+        if folders != std::cmp::Ordering::Equal {
+            return folders;
+        }
+        let order = match key {
+            SortKey::Name => natural_cmp(&a.name, &b.name),
+            SortKey::Size => a.size.cmp(&b.size).then_with(|| natural_cmp(&a.name, &b.name)),
+            SortKey::Modified => a
+                .modified
+                .cmp(&b.modified)
+                .then_with(|| natural_cmp(&a.name, &b.name)),
+            SortKey::Kind => a.mime.cmp(&b.mime).then_with(|| natural_cmp(&a.name, &b.name)),
+        };
+        if ascending { order } else { order.reverse() }
+    });
+}
+
+/// Compares names case insensitively with runs of digits compared by value,
+/// so `file2` sorts before `file10`.
+///
+/// # Arguments
+/// * `a` - One name.
+/// * `b` - The other name.
+pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let a_chars: Vec<char> = a.chars().collect();
+    let b_chars: Vec<char> = b.chars().collect();
+    let (mut i, mut j) = (0usize, 0usize);
+    while i < a_chars.len() && j < b_chars.len() {
+        let (ca, cb) = (a_chars[i], b_chars[j]);
+        if ca.is_ascii_digit() && cb.is_ascii_digit() {
+            let start_a = i;
+            while i < a_chars.len() && a_chars[i].is_ascii_digit() {
+                i += 1;
+            }
+            let start_b = j;
+            while j < b_chars.len() && b_chars[j].is_ascii_digit() {
+                j += 1;
+            }
+            let num_a: String = a_chars[start_a..i].iter().collect();
+            let num_b: String = b_chars[start_b..j].iter().collect();
+            let trimmed_a = num_a.trim_start_matches('0');
+            let trimmed_b = num_b.trim_start_matches('0');
+            let by_value = trimmed_a
+                .len()
+                .cmp(&trimmed_b.len())
+                .then_with(|| trimmed_a.cmp(trimmed_b))
+                .then_with(|| num_a.len().cmp(&num_b.len()));
+            if by_value != Ordering::Equal {
+                return by_value;
+            }
+            continue;
+        }
+        let la = ca.to_lowercase().next().unwrap_or(ca);
+        let lb = cb.to_lowercase().next().unwrap_or(cb);
+        if la != lb {
+            return la.cmp(&lb);
+        }
+        i += 1;
+        j += 1;
+    }
+    (a_chars.len() - i)
+        .cmp(&(b_chars.len() - j))
+        .then_with(|| a.cmp(b))
+}
+
+/// The sidebar places: the home directory, the XDG user directories that
+/// exist, and the root of the filesystem.
+pub fn places() -> Vec<Place> {
+    let home = config::home();
+    let mut list = vec![Place {
+        name: tr("Home").to_string(),
+        path: home.clone(),
+        icon: "user-home",
+    }];
+    let user_dirs = read_user_dirs();
+    for (key, fallback, icon) in [
+        ("XDG_DESKTOP_DIR", "Desktop", "user-desktop"),
+        ("XDG_DOCUMENTS_DIR", "Documents", "folder-documents"),
+        ("XDG_DOWNLOAD_DIR", "Downloads", "folder-download"),
+        ("XDG_PICTURES_DIR", "Pictures", "folder-pictures"),
+        ("XDG_MUSIC_DIR", "Music", "folder-music"),
+        ("XDG_VIDEOS_DIR", "Videos", "folder-videos"),
+    ] {
+        let path = user_dirs.get(key).cloned().unwrap_or_else(|| home.join(fallback));
+        if path.is_dir() && path != home {
+            list.push(Place {
+                name: display_name(&path),
+                path,
+                icon,
+            });
+        }
+    }
+    list.push(Place {
+        name: tr("Filesystem").to_string(),
+        path: PathBuf::from("/"),
+        icon: "drive-harddisk",
+    });
+    list
+}
+
+/// Reads the XDG user directories file.
+fn read_user_dirs() -> HashMap<String, PathBuf> {
+    let mut dirs = HashMap::new();
+    let path = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| config::home().join(".config"))
+        .join("user-dirs.dirs");
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return dirs;
+    };
+    let home = config::home().to_string_lossy().to_string();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('#') {
+            continue;
+        }
+        if let Some((key, value)) = line.split_once('=') {
+            let value = value.trim().trim_matches('"').replace("$HOME", &home);
+            dirs.insert(key.trim().to_string(), PathBuf::from(value));
+        }
+    }
+    dirs
+}
+
+/// The folder icon of a path: the special icon of a place, else the plain folder.
+///
+/// # Arguments
+/// * `places` - The sidebar places.
+/// * `path` - The folder.
+pub fn folder_icon(places: &[Place], path: &Path) -> &'static str {
+    places
+        .iter()
+        .find(|p| p.path == path)
+        .map_or("folder", |p| p.icon)
+}
+
+/// The name a folder is shown under: its file name, "Home" for the home
+/// directory, and the root as a slash.
+///
+/// # Arguments
+/// * `path` - The folder.
+pub fn display_name(path: &Path) -> String {
+    if path == config::home() {
+        return tr("Home").to_string();
+    }
+    path.file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "/".to_string())
+}
+
+/// A size in bytes as a short human readable string.
+///
+/// # Arguments
+/// * `bytes` - The size.
+pub fn human_size(bytes: u64) -> String {
+    const UNITS: [&str; 6] = ["B", "KB", "MB", "GB", "TB", "PB"];
+    if bytes < 1000 {
+        return format!("{bytes} B");
+    }
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1000.0 && unit < UNITS.len() - 1 {
+        value /= 1000.0;
+        unit += 1;
+    }
+    if value >= 100.0 {
+        format!("{value:.0} {}", UNITS[unit])
+    } else {
+        format!("{value:.1} {}", UNITS[unit])
+    }
+}
+
+/// A modification time as the list shows it: the time of day for today,
+/// the day and month within the year, the full date otherwise.
+///
+/// # Arguments
+/// * `secs` - Seconds since the epoch.
+pub fn human_time(secs: i64) -> String {
+    let now = crate::clock::now();
+    let then = crate::clock::local(secs);
+    if then.year == now.year && then.month == now.month && then.day == now.day {
+        crate::clock::format_time(secs, "%H:%M")
+    } else if then.year == now.year {
+        crate::clock::format_time(secs, "%-d %b %H:%M")
+    } else {
+        crate::clock::format_time(secs, "%-d %b %Y")
+    }
+}
+
+/// A path as a `file://` URI with the reserved bytes percent encoded.
+///
+/// # Arguments
+/// * `path` - The path.
+pub fn file_uri(path: &Path) -> String {
+    let mut uri = String::from("file://");
+    for byte in path.as_os_str().as_bytes() {
+        let c = *byte as char;
+        if c.is_ascii_alphanumeric() || "/-._~".contains(c) {
+            uri.push(c);
+        } else {
+            uri.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    uri
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn natural_order() {
+        use std::cmp::Ordering;
+        assert_eq!(natural_cmp("file2", "file10"), Ordering::Less);
+        assert_eq!(natural_cmp("File10", "file2"), Ordering::Greater);
+        assert_eq!(natural_cmp("a", "B"), Ordering::Less);
+        assert_eq!(natural_cmp("img007", "img7"), Ordering::Greater);
+        assert_eq!(natural_cmp("same", "same"), Ordering::Equal);
+    }
+
+    #[test]
+    fn folders_sort_first() {
+        let item = |name: &str, is_dir: bool, size: u64| Item {
+            name: name.to_string(),
+            path: PathBuf::from(name),
+            is_dir,
+            is_symlink: false,
+            size,
+            modified: 0,
+            mime: String::new(),
+            hidden: false,
+            executable: false,
+        };
+        let mut items = vec![
+            item("b.txt", false, 5),
+            item("a.txt", false, 9),
+            item("z", true, 0),
+        ];
+        sort_items(&mut items, SortKey::Size, false);
+        let names: Vec<&str> = items.iter().map(|i| i.name.as_str()).collect();
+        assert_eq!(names, vec!["z", "a.txt", "b.txt"]);
+    }
+
+    #[test]
+    fn sizes_and_uris() {
+        assert_eq!(human_size(999), "999 B");
+        assert_eq!(human_size(1500), "1.5 KB");
+        assert_eq!(human_size(123_456_789), "123 MB");
+        assert_eq!(
+            file_uri(Path::new("/home/me/My File#1.txt")),
+            "file:///home/me/My%20File%231.txt"
+        );
     }
 }
