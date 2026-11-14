@@ -1219,17 +1219,18 @@ fn perform(d: &mut Desktop, id: u32, action: MenuAction) {
         MenuAction::Properties(path) => {
             if let Ok(metadata) = std::fs::metadata(&path) {
                 use std::os::unix::fs::PermissionsExt;
+                let is_dir = metadata.is_dir();
+                let size = if is_dir { None } else { Some(metadata.len()) };
                 if let Some(w) = d.files.window_mut(id) {
-                    let size = if metadata.is_dir() {
-                        directory_size(&path)
-                    } else {
-                        Some(metadata.len())
-                    };
                     w.properties = Some(Properties {
-                        path,
+                        path: path.clone(),
                         mode: metadata.permissions().mode() & 0o777,
                         size,
+                        size_pending: is_dir,
                     });
+                }
+                if is_dir {
+                    d.files.worker.request_directory_size(path);
                 }
             } else {
                 status(d, id, tr("Cannot read file properties").to_string());
@@ -2687,27 +2688,6 @@ fn draw_footer(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, footer: R
     );
 }
 
-/// Returns the total size of regular files contained in a directory.
-///
-/// Directory entries themselves are not counted, and symbolic links are not
-/// followed, so links cannot cause cycles or count data outside the folder.
-fn directory_size(path: &Path) -> Option<u64> {
-    let mut pending = vec![path.to_path_buf()];
-    let mut total = 0u64;
-    while let Some(directory) = pending.pop() {
-        for entry in std::fs::read_dir(directory).ok()? {
-            let entry = entry.ok()?;
-            let kind = entry.file_type().ok()?;
-            if kind.is_dir() {
-                pending.push(entry.path());
-            } else if kind.is_file() {
-                total = total.saturating_add(entry.metadata().ok()?.len());
-            }
-        }
-    }
-    Some(total)
-}
-
 /// Draws file metadata and editable Unix permission bits.
 fn draw_properties(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover: Hit) {
     let w = &d.files.windows[index];
@@ -2723,7 +2703,11 @@ fn draw_properties(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover
     ui::label(canvas, &mut d.fonts, &name, Rect::new(frame.x + 16, frame.y + 42, frame.w - 32, 24), ui::FONT_SIZE, true, Align::Left, ui::text());
     let metadata = std::fs::metadata(&properties.path).ok();
     let kind = if metadata.as_ref().is_some_and(|m| m.is_dir()) { tr("Folder") } else { tr("File") };
-    let size = properties.size.map(files::human_size).unwrap_or_else(|| "—".to_string());
+    let size = if properties.size_pending {
+        "Calculating…".to_string()
+    } else {
+        properties.size.map(files::human_size).unwrap_or_else(|| "—".to_string())
+    };
     ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Type"), kind), Rect::new(frame.x + 16, frame.y + 70, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
     ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Size"), size), Rect::new(frame.x + 16, frame.y + 92, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
     ui::label(canvas, &mut d.fonts, &format!("{}: {:04o}", tr("Permissions"), properties.mode), Rect::new(frame.x + 16, frame.y + 116, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
