@@ -31,6 +31,8 @@ pub enum Job {
     Delete { id: u64, paths: Vec<PathBuf> },
     /// Decode an image at a size.
     Thumbnail { key: ThumbKey },
+    /// Calculate the total size of a directory without blocking the UI.
+    DirectorySize { path: PathBuf },
 }
 
 /// Identifies a thumbnail: the file, its modification time and the pixel size.
@@ -57,15 +59,19 @@ pub enum Message {
     Done { id: u64, errors: Vec<String> },
     /// A thumbnail was decoded, or could not be.
     Thumb { key: ThumbKey, image: Option<Pixmap> },
+    /// The total size of a directory, or None if it could not be read.
+    DirectorySize { path: PathBuf, size: Option<u64> },
 }
 
 /// The channel to the workers and the pipe they wake the main loop with.
 pub struct Worker {
     ops: Sender<Job>,
     thumbs: Sender<Job>,
+    sizes: Sender<Job>,
     results: Receiver<Message>,
     wake_read: OwnedFd,
     pending: HashSet<ThumbKey>,
+    pending_sizes: HashSet<PathBuf>,
     next_id: u64,
 }
 
@@ -88,7 +94,8 @@ impl Worker {
         let (result_tx, results) = channel::<Message>();
         let (ops, ops_rx) = channel::<Job>();
         let (thumbs, thumbs_rx) = channel::<Job>();
-        for rx in [ops_rx, thumbs_rx] {
+        let (sizes, sizes_rx) = channel::<Job>();
+        for rx in [ops_rx, thumbs_rx, sizes_rx] {
             let tx = result_tx.clone();
             let wake = wake_write.clone();
             std::thread::spawn(move || {
@@ -100,9 +107,11 @@ impl Worker {
         Worker {
             ops,
             thumbs,
+            sizes,
             results,
             wake_read,
             pending: HashSet::new(),
+            pending_sizes: HashSet::new(),
             next_id: 1,
         }
     }
@@ -136,6 +145,13 @@ impl Worker {
         }
     }
 
+    /// Queues a directory-size calculation unless the same path is pending.
+    pub fn request_directory_size(&mut self, path: PathBuf) {
+        if self.pending_sizes.insert(path.clone()) {
+            let _ = self.sizes.send(Job::DirectorySize { path });
+        }
+    }
+
     /// Takes every message that arrived, clearing the wake pipe.
     pub fn drain(&mut self) -> Vec<Message> {
         let mut buf = [0u8; 64];
@@ -149,8 +165,14 @@ impl Worker {
         {}
         let mut messages = Vec::new();
         while let Ok(message) = self.results.try_recv() {
-            if let Message::Thumb { key, .. } = &message {
-                self.pending.remove(key);
+            match &message {
+                Message::Thumb { key, .. } => {
+                    self.pending.remove(key);
+                }
+                Message::DirectorySize { path, .. } => {
+                    self.pending_sizes.remove(path);
+                }
+                _ => {}
             }
             messages.push(message);
         }
@@ -173,6 +195,10 @@ fn run(job: Job, tx: &Sender<Message>, wake: Option<&OwnedFd>) {
         Job::Thumbnail { key } => {
             let image = decode_thumbnail(&key);
             send(Message::Thumb { key, image });
+        }
+        Job::DirectorySize { path } => {
+            let size = directory_size(&path);
+            send(Message::DirectorySize { path, size });
         }
         Job::Copy { id, sources, dest } => {
             let errors = transfer(id, &sources, &dest, false, &send);
@@ -204,6 +230,27 @@ fn run(job: Job, tx: &Sender<Message>, wake: Option<&OwnedFd>) {
             send(Message::Done { id, errors });
         }
     }
+}
+
+/// Calculates the sum of regular-file sizes below a directory.
+///
+/// Symbolic links are not followed, preventing cycles and avoiding counting
+/// files outside the selected directory.
+fn directory_size(path: &Path) -> Option<u64> {
+    let mut pending = vec![path.to_path_buf()];
+    let mut total = 0u64;
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(directory).ok()? {
+            let entry = entry.ok()?;
+            let kind = entry.file_type().ok()?;
+            if kind.is_dir() {
+                pending.push(entry.path());
+            } else if kind.is_file() {
+                total = total.saturating_add(entry.metadata().ok()?.len());
+            }
+        }
+    }
+    Some(total)
 }
 
 /// Decodes an image file scaled to a thumbnail.
