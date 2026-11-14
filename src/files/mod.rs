@@ -405,6 +405,7 @@ impl FilesWindow {
             return match picker.target {
                 PickTarget::Wallpaper { .. } => tr("Choose a wallpaper").to_string(),
                 PickTarget::StartIcon => tr("Choose a start menu icon").to_string(),
+                PickTarget::Extract { .. } => tr("Choose an extraction folder").to_string(),
             };
         }
         display_name(&self.dir)
