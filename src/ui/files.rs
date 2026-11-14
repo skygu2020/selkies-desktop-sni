@@ -535,6 +535,38 @@ pub fn hit(d: &mut Desktop, id: u32, x: f64, y: f64) -> Hit {
     Hit::None
 }
 
+/// Maps a pointer X coordinate to the nearest character boundary in the
+/// currently visible portion of a horizontally scrolling text field.
+fn text_cursor_at_x(
+    fonts: &mut Fonts,
+    text: &str,
+    first: usize,
+    inner_x: i32,
+    inner_w: i32,
+    x: f64,
+    scale: i32,
+) -> usize {
+    let chars: Vec<char> = text.chars().collect();
+    let first = first.min(chars.len());
+    if x <= inner_x as f64 {
+        return first;
+    }
+    let mut previous = 0;
+    for index in first..chars.len() {
+        let value: String = chars[first..=index].iter().collect();
+        let next = ui::text_width(fonts, &value, ui::FONT_SIZE, false, scale);
+        let midpoint = inner_x as f64 + (previous + next) as f64 / 2.0;
+        if x < midpoint {
+            return index;
+        }
+        previous = next;
+        if next >= inner_w - 4 {
+            return index + 1;
+        }
+    }
+    chars.len()
+}
+
 /// Handles pointer motion: hover, and the start of a drag.
 ///
 /// # Arguments
@@ -544,33 +576,61 @@ pub fn hit(d: &mut Desktop, id: u32, x: f64, y: f64) -> Hit {
 /// * `y` - Pointer Y.
 pub fn pointer_motion(d: &mut Desktop, id: u32, x: f64, y: f64) {
     let places = d.files.places.len();
-    if let Some(w) = d.files.window_mut(id)
-        && w.rename.as_ref().is_some_and(|rename| rename.selecting)
-    {
-        let field = {
+    let rename_state = d.files.window(id).and_then(|w| {
+        w.rename.as_ref().filter(|rename| rename.selecting).map(|rename| {
             let geometry = layout(w);
-            let index = w.rename.as_ref().map(|rename| rename.index).unwrap_or(0);
-            rename_field_rect(w, &geometry, index)
-        };
-        let ratio = ((x - (field.x + 6) as f64) / (field.w - 12).max(1) as f64).clamp(0.0, 1.0);
-        if let Some(rename) = w.rename.as_mut() {
+            let field = rename_field_rect(w, &geometry, rename.index);
+            (field, rename.text.clone(), rename.cursor)
+        })
+    });
+    if let Some((field, text, cursor)) = rename_state {
+        let inner_x = field.x + 8;
+        let inner_w = (field.w - 16).max(1);
+        let mut first = 0usize;
+        let chars: Vec<char> = text.chars().collect();
+        while first < cursor.min(chars.len()) {
+            let visible: String = chars[first..cursor.min(chars.len())].iter().collect();
+            if ui::text_width(&mut d.fonts, &visible, ui::FONT_SIZE, false, d.files.window(id).map_or(1, |w| w.geometry.scale)) <= inner_w - 4 { break; }
+            first += 1;
+        }
+        let scale = d.files.window(id).map_or(1, |w| w.geometry.scale);
+        let next = text_cursor_at_x(&mut d.fonts, &text, first, inner_x, inner_w, x, scale);
+        if let Some(rename) = d.files.window_mut(id).and_then(|w| w.rename.as_mut()) {
             if rename.anchor.is_none() { rename.anchor = Some(rename.cursor); }
-            rename.cursor = (ratio * rename.text.chars().count() as f64).round() as usize;
+            rename.cursor = next;
             rename.caret_visible = true;
             rename.blink_at = Instant::now() + std::time::Duration::from_millis(500);
         }
-        w.dirty = true;
+        if let Some(w) = d.files.window_mut(id) { w.dirty = true; }
         return;
     }
-    if let Some(w) = d.files.window_mut(id)
-        && w.path_selecting
-        && let Some(text) = w.path_edit.as_ref()
-    {
-        let field = layout(w).path;
-        let ratio = ((x - (field.x + 8) as f64) / (field.w - 16).max(1) as f64).clamp(0.0, 1.0);
-        if w.path_anchor.is_none() { w.path_anchor = Some(w.path_cursor); }
-        w.path_cursor = (ratio * text.chars().count() as f64).round() as usize;
-        w.dirty = true;
+    let path_state = d.files.window(id).and_then(|w| {
+        w.path_edit.as_ref().filter(|_| w.path_selecting).map(|text| {
+            (layout(w).path, text.clone(), w.path_cursor, w.geometry.scale)
+        })
+    });
+    if let Some((field, text, cursor, scale)) = path_state {
+        let inner_x = field.x + 8;
+        let inner_w = (field.w - 16).max(1);
+        let chars: Vec<char> = text.chars().collect();
+        let prefix_width = |fonts: &mut Fonts, end: usize| {
+            let value: String = chars[..end.min(chars.len())].iter().collect();
+            ui::text_width(fonts, &value, ui::FONT_SIZE, false, scale)
+        };
+        let full_width = prefix_width(&mut d.fonts, chars.len());
+        let mut first = 0usize;
+        while first < cursor.min(chars.len())
+            && full_width > inner_w - 4
+            && prefix_width(&mut d.fonts, cursor.min(chars.len())) - prefix_width(&mut d.fonts, first) > inner_w - 4
+        {
+            first += 1;
+        }
+        let next = text_cursor_at_x(&mut d.fonts, &text, first, inner_x, inner_w, x, scale);
+        if let Some(w) = d.files.window_mut(id) {
+            if w.path_anchor.is_none() { w.path_anchor = Some(w.path_cursor); }
+            w.path_cursor = next;
+            w.dirty = true;
+        }
         return;
     }
     if let Some(w) = d.files.window_mut(id)
