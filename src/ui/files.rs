@@ -276,6 +276,22 @@ fn item_rect(w: &FilesWindow, content: Rect, index: usize) -> Rect {
     }
 }
 
+/// The editable name field for an item being renamed.
+fn rename_field_rect(w: &FilesWindow, layout: &Layout, index: usize) -> Rect {
+    let item = item_rect(w, layout.content, index);
+    match w.view {
+        View::Icons => Rect::new(item.x + 2, item.y, item.w - 4, item.h),
+        View::List => {
+            let name = columns(layout.header)
+                .into_iter()
+                .find(|(key, _)| *key == SortKey::Name)
+                .map(|(_, rect)| rect)
+                .unwrap_or(item);
+            Rect::new(name.x - 4, item.y + 2, name.w, item.h - 4)
+        }
+    }
+}
+
 /// Height of the whole listing in the current view.
 fn content_height(w: &FilesWindow, content: Rect) -> i32 {
     match w.view {
@@ -534,7 +550,7 @@ pub fn pointer_motion(d: &mut Desktop, id: u32, x: f64, y: f64) {
         let field = {
             let geometry = layout(w);
             let index = w.rename.as_ref().map(|rename| rename.index).unwrap_or(0);
-            item_rect(w, geometry.content, index)
+            rename_field_rect(w, &geometry, index)
         };
         let ratio = ((x - (field.x + 6) as f64) / (field.w - 12).max(1) as f64).clamp(0.0, 1.0);
         if let Some(rename) = w.rename.as_mut() {
@@ -713,7 +729,7 @@ pub fn pointer_button(
         && w.rename.as_ref().is_some_and(|rename| rename.index == item_index)
     {
         let geometry = layout(w);
-        let field = item_rect(w, geometry.content, item_index);
+        let field = rename_field_rect(w, &geometry, item_index);
         let ratio = ((x - (field.x + 6) as f64) / (field.w - 12).max(1) as f64).clamp(0.0, 1.0);
         let rename = w.rename.as_mut().unwrap();
         let len = rename.text.chars().count();
