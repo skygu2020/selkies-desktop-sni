@@ -340,6 +340,11 @@ pub struct FilesWindow {
     pub picker: Option<Picker>,
     /// The path being typed into the location field.
     pub path_edit: Option<String>,
+    /// Character cursor and optional selection anchor in the location field.
+    pub path_cursor: usize,
+    pub path_anchor: Option<usize>,
+    /// Last location-field click, for double-click select-all.
+    pub path_last_click: Option<u32>,
     /// A message in the status bar, shown until its time.
     pub status: Option<(String, Instant)>,
     /// Where a drag over the window would drop.
@@ -541,6 +546,9 @@ impl Manager {
             properties: None,
             picker,
             path_edit: None,
+            path_cursor: 0,
+            path_anchor: None,
+            path_last_click: None,
             status: None,
             drop_target: None,
             last_click: None,
