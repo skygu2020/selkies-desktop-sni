@@ -529,6 +529,17 @@ pub fn hit(d: &mut Desktop, id: u32, x: f64, y: f64) -> Hit {
 pub fn pointer_motion(d: &mut Desktop, id: u32, x: f64, y: f64) {
     let places = d.files.places.len();
     if let Some(w) = d.files.window_mut(id)
+        && w.path_selecting
+        && let Some(text) = w.path_edit.as_ref()
+    {
+        let field = layout(w).path;
+        let ratio = ((x - (field.x + 8) as f64) / (field.w - 16).max(1) as f64).clamp(0.0, 1.0);
+        if w.path_anchor.is_none() { w.path_anchor = Some(w.path_cursor); }
+        w.path_cursor = (ratio * text.chars().count() as f64).round() as usize;
+        w.dirty = true;
+        return;
+    }
+    if let Some(w) = d.files.window_mut(id)
         && let Some((area, grab)) = w.bar_drag
     {
         let layout = layout(w);
@@ -648,6 +659,7 @@ pub fn pointer_button(
     modifiers: Modifiers,
 ) {
     if !pressed {
+        if button == Button::Left && let Some(w) = d.files.window_mut(id) { w.path_selecting = false; }
         if button == Button::Left
             && let Some(w) = d.files.window_mut(id)
             && w.bar_drag.take().is_some()
@@ -767,6 +779,8 @@ pub fn pointer_button(
                         w.path_anchor = None;
                     }
                     w.path_last_click = Some(time);
+                    w.path_selecting = true;
+                    if w.path_anchor.is_none() { w.path_anchor = Some(w.path_cursor); }
                 } else {
                     let text = w.dir.to_string_lossy().to_string();
                     w.path_cursor = text.chars().count();
