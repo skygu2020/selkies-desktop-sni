@@ -14,7 +14,7 @@ use crate::entries;
 use crate::event::{Button, Modifiers, Request};
 use crate::files::{
     self, Clipboard, Confirm, ContextMenu, DropTarget, FilesWindow, Item, MenuAction, MenuRow, PickTarget,
-    Press, Rename, ScrollArea, SortKey, View,
+    Press, Properties, Rename, ScrollArea, SortKey, View,
 };
 use crate::geom::Rect;
 use crate::i18n::{tr, trf};
@@ -98,6 +98,8 @@ pub enum Hit {
     MenuRow(usize),
     /// A confirmation button: cancel, then delete.
     Confirm(usize),
+    /// A properties dialog control: permission bit, cancel (9), apply (10).
+    Property(usize),
     /// A picker footer button: cancel, then open.
     PickerButton(usize),
     /// The scrollbar of an area.
@@ -350,6 +352,22 @@ fn menu_row_at(w: &FilesWindow, menu: &ContextMenu, x: f64, y: f64) -> Option<us
 }
 
 /// The confirmation box and its two buttons.
+fn properties_rects(w: &FilesWindow) -> (Rect, Rect, Rect) {
+    let width = 460.min(w.geometry.width - 20);
+    let height = 330.min(w.geometry.height - 20);
+    let frame = Rect::new((w.geometry.width - width) / 2, (w.geometry.height - height) / 2, width, height);
+    let apply = Rect::new(frame.right() - 16 - 90, frame.bottom() - 16 - 30, 90, 30);
+    let cancel = Rect::new(apply.x - 8 - 90, apply.y, 90, 30);
+    (frame, cancel, apply)
+}
+
+fn property_bit_rect(frame: Rect, bit: usize) -> Rect {
+    let row = bit / 3;
+    let column = bit % 3;
+    Rect::new(frame.x + 142 + column as i32 * 92, frame.y + 148 + row as i32 * 32, 24, 24)
+}
+
+/// The confirmation box and its two buttons.
 fn confirm_rects(w: &FilesWindow) -> (Rect, Rect, Rect) {
     let frame = Rect::new(0, 0, w.geometry.width, w.geometry.height);
     let width = 380.min(frame.w - 20);
@@ -398,6 +416,21 @@ pub fn hit(d: &mut Desktop, id: u32, x: f64, y: f64) -> Hit {
             Some(row) => Hit::MenuRow(row),
             None => Hit::None,
         };
+    }
+    if w.properties.is_some() {
+        let (frame, cancel, apply) = properties_rects(w);
+        if cancel.contains(x, y) {
+            return Hit::Property(9);
+        }
+        if apply.contains(x, y) {
+            return Hit::Property(10);
+        }
+        for bit in 0..9 {
+            if property_bit_rect(frame, bit).contains(x, y) {
+                return Hit::Property(bit);
+            }
+        }
+        return Hit::None;
     }
     if w.confirm.is_some() {
         let (_, cancel, delete) = confirm_rects(w);
@@ -653,6 +686,39 @@ pub fn pointer_button(
         update_hover(d, id, x, y);
         return;
     }
+    if w.properties.is_some() {
+        if button == Button::Left {
+            match hit {
+                Hit::Property(bit @ 0..=8) => {
+                    if let Some(properties) = d.files.window_mut(id).and_then(|w| w.properties.as_mut()) {
+                        properties.mode ^= 1 << (8 - bit);
+                    }
+                }
+                Hit::Property(9) => {
+                    if let Some(w) = d.files.window_mut(id) { w.properties = None; }
+                }
+                Hit::Property(10) => {
+                    let properties = d.files.window_mut(id).and_then(|w| w.properties.take());
+                    if let Some(properties) = properties {
+                        use std::os::unix::fs::PermissionsExt;
+                        match std::fs::set_permissions(
+                            &properties.path,
+                            std::fs::Permissions::from_mode(properties.mode),
+                        ) {
+                            Ok(()) => d.files.refresh(id),
+                            Err(error) => status(d, id, trf(
+                                "Cannot change permissions: {error}",
+                                &[("error", &error.to_string())],
+                            )),
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        update_hover(d, id, x, y);
+        return;
+    }
     if w.confirm.is_some() {
         if let Hit::Confirm(which) = hit
             && button == Button::Left
@@ -890,6 +956,24 @@ fn open_item(d: &mut Desktop, id: u32, index: usize) {
         d.settings.monitor = monitor;
         return;
     }
+    let lower = item.name.to_ascii_lowercase();
+    let is_script = lower.ends_with(".sh");
+    let is_appimage = lower.ends_with(".appimage");
+    if item.executable || is_script || is_appimage {
+        if let Some(w) = d.files.window_mut(id) {
+            let width = w.geometry.width;
+            let height = w.geometry.height;
+            w.menu = Some(ContextMenu {
+                x: (width - MENU_W) / 2,
+                y: (height - 3 * MENU_ROW - 12) / 2,
+                rows: vec![
+                    MenuRow::Action(tr("Run").to_string(), MenuAction::RunFile(item.path.clone()), true),
+                    MenuRow::Action(tr("Run in terminal").to_string(), MenuAction::RunFileTerminal(item.path), true),
+                ],
+            });
+        }
+        return;
+    }
     open_with_default(d, id, std::slice::from_ref(&item.path), &item.mime);
 }
 
@@ -981,6 +1065,9 @@ fn item_rows(d: &mut Desktop, id: u32) -> Vec<MenuRow> {
         }
     }
     if editable {
+        rows.push(MenuRow::Action(tr("Properties").to_string(), MenuAction::Properties(
+            selected.first().map(|item| item.path.clone()).unwrap_or_default()
+        ), selected.len() == 1));
         rows.push(MenuRow::Separator);
         rows.push(MenuRow::Action(tr("Cut").to_string(), MenuAction::Cut, true));
         rows.push(MenuRow::Action(tr("Copy").to_string(), MenuAction::Copy, true));
@@ -1102,6 +1189,42 @@ fn perform(d: &mut Desktop, id: u32, action: MenuAction) {
             let paths = w.selected_paths();
             if let Some(entry) = entries::load_entry(&handler) {
                 entries::launch_with(&entry, &d.config, &paths);
+            }
+        }
+        MenuAction::Properties(path) => {
+            if let Ok(metadata) = std::fs::metadata(&path) {
+                use std::os::unix::fs::PermissionsExt;
+                if let Some(w) = d.files.window_mut(id) {
+                    w.properties = Some(Properties {
+                        path,
+                        mode: metadata.permissions().mode() & 0o777,
+                    });
+                }
+            } else {
+                status(d, id, tr("Cannot read file properties").to_string());
+            }
+        }
+        MenuAction::RunFile(path) => {
+            let lower = path.file_name().unwrap_or_default().to_string_lossy().to_ascii_lowercase();
+            let argv = if lower.ends_with(".sh") {
+                vec!["/bin/sh".to_string(), path.to_string_lossy().to_string()]
+            } else {
+                vec![path.to_string_lossy().to_string()]
+            };
+            entries::spawn_detached(&argv, None);
+        }
+        MenuAction::RunFileTerminal(path) => {
+            let lower = path.file_name().unwrap_or_default().to_string_lossy().to_ascii_lowercase();
+            let mut command = if lower.ends_with(".sh") {
+                vec!["/bin/sh".to_string(), path.to_string_lossy().to_string()]
+            } else {
+                vec![path.to_string_lossy().to_string()]
+            };
+            if let Some(mut terminal) = entries::find_terminal(&d.config) {
+                terminal.append(&mut command);
+                entries::spawn_detached(&terminal, None);
+            } else {
+                status(d, id, tr("No terminal is installed").to_string());
             }
         }
         MenuAction::Edit => {
@@ -1877,6 +2000,9 @@ pub fn draw(d: &mut Desktop, id: u32, canvas: &mut Canvas<'_>) {
     if let Some(footer) = layout.footer {
         draw_footer(d, index, canvas, footer, hover);
     }
+    if d.files.windows[index].properties.is_some() {
+        draw_properties(d, index, canvas, hover);
+    }
     if d.files.windows[index].confirm.is_some() {
         draw_confirm(d, index, canvas, &layout, hover);
     }
@@ -2510,6 +2636,43 @@ fn draw_footer(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, footer: R
         hover == Hit::PickerButton(1),
         chosen.is_some(),
     );
+}
+
+/// Draws file metadata and editable Unix permission bits.
+fn draw_properties(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover: Hit) {
+    let w = &d.files.windows[index];
+    let Some(properties) = w.properties.clone() else { return; };
+    let (frame, cancel, apply) = properties_rects(w);
+    canvas.fill_rect(frame.inflate(400), rgba(0, 0, 0, 0x70));
+    ui::draw_popup_frame(canvas, frame);
+    ui::label(canvas, &mut d.fonts, tr("Properties"), Rect::new(frame.x + 16, frame.y + 10, frame.w - 32, 28), ui::FONT_SIZE + 1.0, true, Align::Left, ui::text());
+    let name = files::ops::file_name(&properties.path);
+    ui::label(canvas, &mut d.fonts, &name, Rect::new(frame.x + 16, frame.y + 42, frame.w - 32, 24), ui::FONT_SIZE, true, Align::Left, ui::text());
+    let metadata = std::fs::metadata(&properties.path).ok();
+    let kind = if metadata.as_ref().is_some_and(|m| m.is_dir()) { tr("Folder") } else { tr("File") };
+    let size = metadata.as_ref().map(|m| files::human_size(m.len())).unwrap_or_else(|| "—".to_string());
+    ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Type"), kind), Rect::new(frame.x + 16, frame.y + 70, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
+    ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Size"), size), Rect::new(frame.x + 16, frame.y + 92, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
+    ui::label(canvas, &mut d.fonts, &format!("{}: {:04o}", tr("Permissions"), properties.mode), Rect::new(frame.x + 16, frame.y + 116, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
+    for (column, label) in ["Owner", "Group", "Others"].iter().enumerate() {
+        ui::label(canvas, &mut d.fonts, label, Rect::new(frame.x + 132 + column as i32 * 92, frame.y + 174, 84, 20), ui::FONT_SMALL, true, Align::Center, ui::text());
+    }
+    for (row, label) in ["Read", "Write", "Execute"].iter().enumerate() {
+        ui::label(canvas, &mut d.fonts, label, Rect::new(frame.x + 16, frame.y + 148 + row as i32 * 32, 108, 24), ui::FONT_SMALL, false, Align::Left, ui::text());
+    }
+    for bit in 0..9 {
+        let rect = property_bit_rect(frame, bit);
+        let enabled = properties.mode & (1 << (8 - bit)) != 0;
+        canvas.stroke_rounded(rect, 4.0, 1.0, ui::separator());
+        if enabled {
+            ui::label(canvas, &mut d.fonts, "✓", rect, ui::FONT_SIZE, true, Align::Center, ui::accent());
+        }
+        if hover == Hit::Property(bit) {
+            canvas.stroke_rounded(rect.inflate(2), 5.0, 1.0, ui::accent());
+        }
+    }
+    draw_button(canvas, d, cancel, tr("Cancel"), hover == Hit::Property(9), false);
+    draw_button(canvas, d, apply, tr("Apply"), hover == Hit::Property(10), true);
 }
 
 /// Draws the deletion confirmation over the content.
