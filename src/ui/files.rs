@@ -1220,9 +1220,15 @@ fn perform(d: &mut Desktop, id: u32, action: MenuAction) {
             if let Ok(metadata) = std::fs::metadata(&path) {
                 use std::os::unix::fs::PermissionsExt;
                 if let Some(w) = d.files.window_mut(id) {
+                    let size = if metadata.is_dir() {
+                        directory_size(&path)
+                    } else {
+                        Some(metadata.len())
+                    };
                     w.properties = Some(Properties {
                         path,
                         mode: metadata.permissions().mode() & 0o777,
+                        size,
                     });
                 }
             } else {
@@ -1286,6 +1292,8 @@ fn perform(d: &mut Desktop, id: u32, action: MenuAction) {
                 w.rename = Some(Rename {
                     index,
                     text: item.name.clone(),
+                    caret_visible: true,
+                    blink_at: Instant::now() + std::time::Duration::from_millis(500),
                 });
                 scroll_to(w, index);
             }
@@ -1369,6 +1377,8 @@ fn new_folder(d: &mut Desktop, id: u32) {
         w.rename = Some(Rename {
             index,
             text: files::ops::file_name(&path),
+            caret_visible: true,
+            blink_at: Instant::now() + std::time::Duration::from_millis(500),
         });
         scroll_to(w, index);
     }
@@ -1395,6 +1405,8 @@ fn new_file(d: &mut Desktop, id: u32) {
                 w.rename = Some(Rename {
                     index,
                     text: files::ops::file_name(&path),
+                    caret_visible: true,
+                    blink_at: Instant::now() + std::time::Duration::from_millis(500),
                 });
                 scroll_to(w, index);
             }
@@ -1910,7 +1922,14 @@ fn draw_sort_glyph(canvas: &mut Canvas<'_>, rect: Rect, color: Color) {
 }
 
 /// Draws a text field with a caret.
-fn draw_field(canvas: &mut Canvas<'_>, d: &mut Desktop, rect: Rect, text: &str, scale: i32) {
+fn draw_field(
+    canvas: &mut Canvas<'_>,
+    d: &mut Desktop,
+    rect: Rect,
+    text: &str,
+    scale: i32,
+    caret_visible: bool,
+) {
     canvas.fill_rounded(rect, 5.0, ui::field_bg());
     canvas.stroke_rounded(rect, 5.0, 1.0, ui::accent());
     let text_rect = Rect::new(rect.x + 8, rect.y, rect.w - 16, rect.h);
@@ -1944,10 +1963,12 @@ fn draw_field(canvas: &mut Canvas<'_>, d: &mut Desktop, rect: Rect, text: &str, 
     );
     let caret_x =
         text_rect.x + ui::text_width(&mut d.fonts, &shown, ui::FONT_SIZE, false, scale).min(text_rect.w - 2);
-    canvas.fill_rect(
-        Rect::new(caret_x + 1, text_rect.y + 7, 1, text_rect.h - 14),
-        ui::text(),
-    );
+    if caret_visible {
+        canvas.fill_rect(
+            Rect::new(caret_x + 1, text_rect.y + 7, 1, text_rect.h - 14),
+            ui::text(),
+        );
+    }
 }
 
 /// Draws a push button.
@@ -2076,7 +2097,7 @@ fn draw_toolbar(
     );
 
     if let Some(text) = path_edit {
-        draw_field(canvas, d, layout.path, &text, scale);
+        draw_field(canvas, d, layout.path, &text, scale, true);
     } else {
         canvas.fill_rounded(layout.path, 6.0, ui::field_bg());
         let rects = crumb_rects(&mut d.fonts, &dir, scale, layout.path);
@@ -2257,7 +2278,10 @@ fn draw_grid(
                 w.items[i].clone(),
                 w.selection.contains(&i),
                 w.drop_target == Some(DropTarget::Item(i)),
-                w.rename.as_ref().filter(|r| r.index == i).map(|r| r.text.clone()),
+                w.rename
+                    .as_ref()
+                    .filter(|r| r.index == i)
+                    .map(|r| (r.text.clone(), r.caret_visible)),
             )
         };
         let cut = cut_paths.contains(&item.path);
@@ -2303,9 +2327,9 @@ fn draw_grid(
             }
         }
         let text_top = icon_rect.bottom() + 6;
-        if let Some(text) = renaming {
+        if let Some((text, caret_visible)) = renaming {
             let field = Rect::new(cell.x + 2, text_top - 2, cell.w - 4, 24);
-            draw_field(canvas, d, field, &text, scale);
+            draw_field(canvas, d, field, &text, scale, caret_visible);
             continue;
         }
         let color = if cut { ui::text_dim() } else { ui::text() };
@@ -2407,7 +2431,10 @@ fn draw_list(
                 w.items[i].clone(),
                 w.selection.contains(&i),
                 w.drop_target == Some(DropTarget::Item(i)),
-                w.rename.as_ref().filter(|r| r.index == i).map(|r| r.text.clone()),
+                w.rename
+                    .as_ref()
+                    .filter(|r| r.index == i)
+                    .map(|r| (r.text.clone(), r.caret_visible)),
             )
         };
         let cut = cut_paths.contains(&item.path);
@@ -2436,13 +2463,14 @@ fn draw_list(
                     }
                     let name_rect =
                         Rect::new(icon_rect.right() + 8, row.y, col.w - ui::ICON_SIZE - 16, row.h);
-                    if let Some(text) = &renaming {
+                    if let Some((text, caret_visible)) = &renaming {
                         draw_field(
                             canvas,
                             d,
                             Rect::new(name_rect.x - 4, row.y + 2, name_rect.w, row.h - 4),
                             text,
                             scale,
+                            *caret_visible,
                         );
                     } else {
                         ui::label(
@@ -2659,6 +2687,27 @@ fn draw_footer(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, footer: R
     );
 }
 
+/// Returns the total size of regular files contained in a directory.
+///
+/// Directory entries themselves are not counted, and symbolic links are not
+/// followed, so links cannot cause cycles or count data outside the folder.
+fn directory_size(path: &Path) -> Option<u64> {
+    let mut pending = vec![path.to_path_buf()];
+    let mut total = 0u64;
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(directory).ok()? {
+            let entry = entry.ok()?;
+            let kind = entry.file_type().ok()?;
+            if kind.is_dir() {
+                pending.push(entry.path());
+            } else if kind.is_file() {
+                total = total.saturating_add(entry.metadata().ok()?.len());
+            }
+        }
+    }
+    Some(total)
+}
+
 /// Draws file metadata and editable Unix permission bits.
 fn draw_properties(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover: Hit) {
     let w = &d.files.windows[index];
@@ -2674,7 +2723,7 @@ fn draw_properties(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover
     ui::label(canvas, &mut d.fonts, &name, Rect::new(frame.x + 16, frame.y + 42, frame.w - 32, 24), ui::FONT_SIZE, true, Align::Left, ui::text());
     let metadata = std::fs::metadata(&properties.path).ok();
     let kind = if metadata.as_ref().is_some_and(|m| m.is_dir()) { tr("Folder") } else { tr("File") };
-    let size = metadata.as_ref().map(|m| files::human_size(m.len())).unwrap_or_else(|| "—".to_string());
+    let size = properties.size.map(files::human_size).unwrap_or_else(|| "—".to_string());
     ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Type"), kind), Rect::new(frame.x + 16, frame.y + 70, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
     ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Size"), size), Rect::new(frame.x + 16, frame.y + 92, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
     ui::label(canvas, &mut d.fonts, &format!("{}: {:04o}", tr("Permissions"), properties.mode), Rect::new(frame.x + 16, frame.y + 116, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
