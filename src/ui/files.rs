@@ -999,6 +999,21 @@ fn open_with_default(d: &mut Desktop, id: u32, paths: &[PathBuf], mime: &str) {
     status(d, id, trf("No application opens {kind}", &[("kind", &kind)]));
 }
 
+/// Builds a command for a script or executable, respecting an executable
+/// script's shebang and using /bin/sh for a non-executable .sh file.
+fn executable_command(path: &Path) -> Vec<String> {
+    use std::os::unix::fs::PermissionsExt;
+    let executable = std::fs::metadata(path)
+        .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false);
+    let is_shell_script = path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("sh"));
+    if is_shell_script && !executable {
+        vec!["/bin/sh".to_string(), path.to_string_lossy().to_string()]
+    } else {
+        vec![path.to_string_lossy().to_string()]
+    }
+}
+
 /// Shows a message in a window's status bar.
 fn status(d: &mut Desktop, id: u32, text: String) {
     if let Some(w) = d.files.window_mut(id) {
@@ -1205,21 +1220,11 @@ fn perform(d: &mut Desktop, id: u32, action: MenuAction) {
             }
         }
         MenuAction::RunFile(path) => {
-            let lower = path.file_name().unwrap_or_default().to_string_lossy().to_ascii_lowercase();
-            let argv = if lower.ends_with(".sh") {
-                vec!["/bin/sh".to_string(), path.to_string_lossy().to_string()]
-            } else {
-                vec![path.to_string_lossy().to_string()]
-            };
-            entries::spawn_detached(&argv, None);
+            let command = executable_command(&path);
+            entries::spawn_detached(&command, None);
         }
         MenuAction::RunFileTerminal(path) => {
-            let lower = path.file_name().unwrap_or_default().to_string_lossy().to_ascii_lowercase();
-            let mut command = if lower.ends_with(".sh") {
-                vec!["/bin/sh".to_string(), path.to_string_lossy().to_string()]
-            } else {
-                vec![path.to_string_lossy().to_string()]
-            };
+            let mut command = executable_command(&path);
             if let Some(mut terminal) = entries::find_terminal(&d.config) {
                 terminal.append(&mut command);
                 entries::spawn_detached(&terminal, None);
@@ -1504,6 +1509,12 @@ pub fn key(d: &mut Desktop, id: u32, key: Key, modifiers: Modifiers) {
         return;
     };
     w.dirty = true;
+    if w.properties.is_some() {
+        if key == Key::Escape {
+            w.properties = None;
+        }
+        return;
+    }
     if w.confirm.is_some() {
         match key {
             Key::Enter => {
