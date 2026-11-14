@@ -33,6 +33,8 @@ pub enum Job {
     Thumbnail { key: ThumbKey },
     /// Calculate the total size of a directory without blocking the UI.
     DirectorySize { path: PathBuf },
+    /// Extract an archive into a directory.
+    Extract { id: u64, archive: PathBuf, dest: PathBuf },
 }
 
 /// Identifies a thumbnail: the file, its modification time and the pixel size.
@@ -199,6 +201,10 @@ fn run(job: Job, tx: &Sender<Message>, wake: Option<&OwnedFd>) {
         Job::DirectorySize { path } => {
             let size = directory_size(&path);
             send(Message::DirectorySize { path, size });
+        }
+        Job::Extract { id, archive, dest } => {
+            let errors = extract_archive(&archive, &dest);
+            send(Message::Done { id, errors });
         }
         Job::Copy { id, sources, dest } => {
             let errors = transfer(id, &sources, &dest, false, &send);
@@ -412,6 +418,59 @@ pub fn unique_name(dir: &Path, name: &str, copy: bool) -> PathBuf {
         }
     }
     direct
+}
+
+/// Extracts a supported archive without blocking the desktop's main thread.
+fn extract_archive(archive: &Path, dest: &Path) -> Vec<String> {
+    let name = file_name(archive);
+    let lower = name.to_ascii_lowercase();
+    let result = if lower.ends_with(".zip") {
+        std::process::Command::new("unzip")
+            .arg("-n")
+            .arg(archive)
+            .arg("-d")
+            .arg(dest)
+            .status()
+    } else if [".tar", ".tar.gz", ".tgz", ".tar.xz", ".txz", ".tar.bz2", ".tbz2", ".tar.zst", ".tzst"]
+        .iter()
+        .any(|suffix| lower.ends_with(suffix))
+    {
+        std::process::Command::new("tar")
+            .arg("-xf")
+            .arg(archive)
+            .arg("-C")
+            .arg(dest)
+            .status()
+    } else if lower.ends_with(".7z") || lower.ends_with(".rar") {
+        let program = if command_available("7z") {
+            "7z"
+        } else if command_available("7zz") {
+            "7zz"
+        } else {
+            return vec![format!("{name}: 7z/7zz is not installed")];
+        };
+        std::process::Command::new(program)
+            .arg("x")
+            .arg("-y")
+            .arg("-aos")
+            .arg(format!("-o{}", dest.to_string_lossy()))
+            .arg(archive)
+            .status()
+    } else {
+        return vec![format!("{name}: unsupported archive format")];
+    };
+    match result {
+        Ok(status) if status.success() => Vec::new(),
+        Ok(status) => vec![format!("{name}: extraction failed ({status})")],
+        Err(error) => vec![format!("{name}: cannot start extractor: {error}")],
+    }
+}
+
+/// Checks whether a program can be found on PATH.
+fn command_available(program: &str) -> bool {
+    std::env::var_os("PATH").is_some_and(|paths| {
+        std::env::split_paths(&paths).any(|dir| dir.join(program).is_file())
+    })
 }
 
 /// Splits a file name into its stem and its extension with the dot, keeping
