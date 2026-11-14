@@ -1047,14 +1047,20 @@ fn item_rows(d: &mut Desktop, id: u32) -> Vec<MenuRow> {
         .first()
         .filter(|f| selected.iter().all(|s| s.mime == f.mime && !s.is_dir))
         .map(|f| f.mime.clone());
-    let mut rows = vec![
-        MenuRow::Action(tr("Open").to_string(), MenuAction::Open, true),
-        MenuRow::Action(
+    let mut rows = vec![MenuRow::Action(
+        tr("Open").to_string(),
+        MenuAction::Open,
+        true,
+    )];
+    // Edit is a file-only action: omit it entirely for directories and
+    // multi-selection instead of showing a disabled menu row.
+    if selected.len() == 1 && !selected[0].is_dir {
+        rows.push(MenuRow::Action(
             tr("Edit").to_string(),
             MenuAction::Edit,
-            selected.len() == 1 && !selected[0].is_dir,
-        ),
-    ];
+            true,
+        ));
+    }
     if single_dir && editable {
         rows.push(MenuRow::Action(
             tr("Open in new window").to_string(),
