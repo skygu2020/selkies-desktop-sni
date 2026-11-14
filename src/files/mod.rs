@@ -203,8 +203,6 @@ pub enum MenuAction {
     OpenWith(String),
     /// Show all available applications in a nested context-menu view.
     OpenWithMenu(Vec<String>),
-    /// Return from the application list to the context menu.
-    OpenWithBack,
     /// Extract an archive into the current folder.
     ExtractHere(PathBuf),
     /// Choose a folder in which to extract an archive.
