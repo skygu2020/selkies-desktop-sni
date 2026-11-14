@@ -2160,11 +2160,11 @@ fn system_clipboard(write: Option<&str>) -> Option<String> {
                 continue;
             };
             if stdin.write_all(text.as_bytes()).is_err() {
-                drop(stdin);
+                std::mem::drop(stdin);
                 let _ = child.wait();
                 continue;
             }
-            drop(stdin);
+            std::mem::drop(stdin);
             match child.wait() {
                 Ok(status) if status.success() => return Some(String::new()),
                 _ => continue,
