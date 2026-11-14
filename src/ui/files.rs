@@ -351,7 +351,7 @@ fn menu_row_at(w: &FilesWindow, menu: &ContextMenu, x: f64, y: f64) -> Option<us
     None
 }
 
-/// The confirmation box and its two buttons.
+/// The properties dialog and its two buttons.
 fn properties_rects(w: &FilesWindow) -> (Rect, Rect, Rect) {
     let width = 460.min(w.geometry.width - 20);
     let height = 330.min(w.geometry.height - 20);
@@ -364,7 +364,7 @@ fn properties_rects(w: &FilesWindow) -> (Rect, Rect, Rect) {
 fn property_bit_rect(frame: Rect, bit: usize) -> Rect {
     let row = bit / 3;
     let column = bit % 3;
-    Rect::new(frame.x + 142 + column as i32 * 92, frame.y + 148 + row as i32 * 32, 24, 24)
+    Rect::new(frame.x + 162 + column as i32 * 92, frame.y + 148 + row as i32 * 32, 24, 24)
 }
 
 /// The confirmation box and its two buttons.
