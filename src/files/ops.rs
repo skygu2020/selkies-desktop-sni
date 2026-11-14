@@ -425,12 +425,29 @@ fn extract_archive(archive: &Path, dest: &Path) -> Vec<String> {
     let name = file_name(archive);
     let lower = name.to_ascii_lowercase();
     let result = if lower.ends_with(".zip") {
-        std::process::Command::new("unzip")
-            .arg("-n")
-            .arg(archive)
-            .arg("-d")
-            .arg(dest)
-            .status()
+        if command_available("unzip") {
+            std::process::Command::new("unzip")
+                .arg("-n")
+                .arg(archive)
+                .arg("-d")
+                .arg(dest)
+                .status()
+        } else {
+            let program = if command_available("7z") {
+                "7z"
+            } else if command_available("7zz") {
+                "7zz"
+            } else {
+                return vec![format!("{name}: unzip or 7z/7zz is not installed")];
+            };
+            std::process::Command::new(program)
+                .arg("x")
+                .arg("-y")
+                .arg("-aos")
+                .arg(format!("-o{}", dest.to_string_lossy()))
+                .arg(archive)
+                .status()
+        }
     } else if [".tar", ".tar.gz", ".tgz", ".tar.xz", ".txz", ".tar.bz2", ".tbz2", ".tar.zst", ".tzst"]
         .iter()
         .any(|suffix| lower.ends_with(suffix))
