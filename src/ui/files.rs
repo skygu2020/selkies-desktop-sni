@@ -1503,6 +1503,10 @@ fn new_file(d: &mut Desktop, id: u32) {
                 w.rename = Some(Rename {
                     index,
                     text: files::ops::file_name(&path),
+                    cursor: files::ops::file_name(&path).chars().count(),
+                    anchor: None,
+                    last_click: None,
+                    selecting: false,
                     caret_visible: true,
                     blink_at: Instant::now() + std::time::Duration::from_millis(500),
                 });
