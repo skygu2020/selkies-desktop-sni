@@ -1957,12 +1957,11 @@ fn system_clipboard(write: Option<&str>) -> Option<String> {
     use std::io::Write as _;
     use std::process::{Command, Stdio};
     let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
-    let candidates: &[(&str, &[&str])] = if wayland {
-        if write.is_some() { &[("wl-copy", &[])] } else { &[("wl-paste", &["--no-newline"])] }
-    } else if write.is_some() {
-        &[("xclip", &["-selection", "clipboard", "-in"]), ("xsel", &["--clipboard", "--input"])]
-    } else {
-        &[("xclip", &["-selection", "clipboard", "-out"]), ("xsel", &["--clipboard", "--output"])]
+    let candidates: &[(&str, &[&str])] = match (wayland, write.is_some()) {
+        (true, true) => &[("wl-copy", &[]), ("xclip", &["-selection", "clipboard", "-in"]), ("xsel", &["--clipboard", "--input"])],
+        (true, false) => &[("wl-paste", &["--no-newline"]), ("xclip", &["-selection", "clipboard", "-out"]), ("xsel", &["--clipboard", "--output"])],
+        (false, true) => &[("xclip", &["-selection", "clipboard", "-in"]), ("xsel", &["--clipboard", "--input"])],
+        (false, false) => &[("xclip", &["-selection", "clipboard", "-out"]), ("xsel", &["--clipboard", "--output"])],
     };
     for (program, args) in candidates {
         let mut child = match Command::new(program)
