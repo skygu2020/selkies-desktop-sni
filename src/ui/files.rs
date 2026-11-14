@@ -825,7 +825,34 @@ pub fn pointer_button(
             && button == Button::Left
             && let Some(MenuRow::Action(_, action, true)) = menu.rows.get(row)
         {
-            perform(d, id, action.clone());
+            match action.clone() {
+                MenuAction::OpenWithMenu(handlers) => {
+                    let mut rows = vec![MenuRow::Action(
+                        format!("‹ {}", tr("Back")),
+                        MenuAction::OpenWithBack,
+                        true,
+                    )];
+                    for handler in handlers {
+                        if let Some(entry) = entries::load_entry(&handler) {
+                            rows.push(MenuRow::Action(
+                                trf("Open with {app}", &[("app", &entry.name)]),
+                                MenuAction::OpenWith(handler),
+                                true,
+                            ));
+                        }
+                    }
+                    if let Some(window) = d.files.window_mut(id) {
+                        window.menu = Some(ContextMenu { x: menu.x, y: menu.y, rows });
+                    }
+                }
+                MenuAction::OpenWithBack => {
+                    let rows = item_rows(d, id);
+                    if let Some(window) = d.files.window_mut(id) {
+                        window.menu = Some(ContextMenu { x: menu.x, y: menu.y, rows });
+                    }
+                }
+                action => perform(d, id, action),
+            }
         }
         update_hover(d, id, x, y);
         return;
@@ -1271,18 +1298,30 @@ fn item_rows(d: &mut Desktop, id: u32) -> Vec<MenuRow> {
     }
     if let Some(mime) = one_mime {
         let handlers = d.files.mime.handlers(&mime);
-        let mut shown = 0;
+        let mut available = Vec::new();
         for handler in handlers {
-            if shown >= OPEN_WITH_MAX {
+            if available.len() >= OPEN_WITH_MAX {
                 break;
             }
-            if let Some(entry) = entries::load_entry(&handler) {
-                rows.push(MenuRow::Action(
-                    trf("Open with {app}", &[("app", &entry.name)]),
-                    MenuAction::OpenWith(handler.clone()),
-                    true,
-                ));
-                shown += 1;
+            if entries::load_entry(&handler).is_some() {
+                available.push(handler);
+            }
+        }
+        if available.len() > 2 {
+            rows.push(MenuRow::Action(
+                tr("Open with").to_string(),
+                MenuAction::OpenWithMenu(available),
+                true,
+            ));
+        } else {
+            for handler in available {
+                if let Some(entry) = entries::load_entry(&handler) {
+                    rows.push(MenuRow::Action(
+                        trf("Open with {app}", &[("app", &entry.name)]),
+                        MenuAction::OpenWith(handler),
+                        true,
+                    ));
+                }
             }
         }
     }
@@ -1428,6 +1467,7 @@ fn perform(d: &mut Desktop, id: u32, action: MenuAction) {
                 entries::launch_with(&entry, &d.config, &paths);
             }
         }
+        MenuAction::OpenWithMenu(_) | MenuAction::OpenWithBack => {}
         MenuAction::ExtractHere(archive) => {
             let dest = w.dir.clone();
             d.files.extract(id, archive, dest);
