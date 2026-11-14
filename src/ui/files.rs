@@ -396,6 +396,7 @@ pub fn hit(d: &mut Desktop, id: u32, x: f64, y: f64) -> Hit {
         return Hit::None;
     };
     let layout = layout(&d.files.windows[index]);
+    if layout.path.contains(x, y) && d.files.windows[index].path_edit.is_some() { return Hit::PathField; }
     if layout.path.contains(x, y) && d.files.windows[index].path_edit.is_none() {
         let dir = d.files.windows[index].dir.clone();
         let scale = d.files.windows[index].geometry.scale;
@@ -755,7 +756,10 @@ pub fn pointer_button(
             }
             Hit::PathField => {
                 if w.path_edit.is_none() {
-                    w.path_edit = Some(w.dir.to_string_lossy().to_string());
+                    let text = w.dir.to_string_lossy().to_string();
+                    w.path_cursor = text.chars().count();
+                    w.path_anchor = None;
+                    w.path_edit = Some(text);
                 }
             }
             Hit::ViewToggle => {
@@ -1568,35 +1572,45 @@ pub fn key(d: &mut Desktop, id: u32, key: Key, modifiers: Modifiers) {
         }
         return;
     }
-    if let Some(edit) = w.path_edit.as_mut() {
+    if w.path_edit.is_some() {
+        let mut edit = w.path_edit.take().unwrap_or_default();
+        let mut chars: Vec<char> = edit.chars().collect();
+        let len = chars.len();
+        let (start, end) = w.path_anchor.map_or((w.path_cursor, w.path_cursor), |a| (a.min(w.path_cursor), a.max(w.path_cursor)));
+        let mut cursor = w.path_cursor.min(len);
         match key {
-            Key::Char(c) if !modifiers.ctrl => edit.push(c),
-            Key::Backspace => {
-                edit.pop();
+            Key::Char(c) if modifiers.ctrl && matches!(c, 'a' | 'A') => { w.path_anchor = Some(0); cursor = len; }
+            Key::Char(c) if modifiers.ctrl && matches!(c, 'c' | 'C') => {
+                if end > start { let value: String = chars[start..end].iter().collect(); let _ = system_clipboard(Some(&value)); }
+            }
+            Key::Char(c) if modifiers.ctrl && matches!(c, 'x' | 'X') => {
+                if end > start { let value: String = chars[start..end].iter().collect(); let _ = system_clipboard(Some(&value)); chars.drain(start..end); cursor = start; w.path_anchor = None; }
+            }
+            Key::Char(c) if modifiers.ctrl && matches!(c, 'v' | 'V') => {
+                if let Some(value) = system_clipboard(None) { chars.splice(start..end, value.chars()); cursor = start + value.chars().count(); w.path_anchor = None; }
+            }
+            Key::Char(c) if !modifiers.ctrl => { chars.splice(start..end, [c]); cursor = start + 1; w.path_anchor = None; }
+            Key::Backspace => { if end > start { chars.drain(start..end); cursor = start; w.path_anchor = None; } else if cursor > 0 { chars.remove(cursor - 1); cursor -= 1; } }
+            Key::Delete => { if end > start { chars.drain(start..end); cursor = start; w.path_anchor = None; } else if cursor < len { chars.remove(cursor); } }
+            Key::Left | Key::Right | Key::Home | Key::End => {
+                let next = match key { Key::Left => cursor.saturating_sub(1), Key::Right => (cursor + 1).min(len), Key::Home => 0, _ => len };
+                if modifiers.shift { if w.path_anchor.is_none() { w.path_anchor = Some(cursor); } } else { w.path_anchor = None; }
+                cursor = next;
             }
             Key::Enter => {
+                edit = chars.iter().collect::<String>();
                 let text = edit.trim().to_string();
-                w.path_edit = None;
-                let path = if let Some(rest) = text.strip_prefix("~/") {
-                    crate::config::home().join(rest)
-                } else if text == "~" {
-                    crate::config::home()
-                } else {
-                    PathBuf::from(text)
-                };
-                if path.is_dir() {
-                    d.files.navigate(id, &path);
-                } else {
-                    status(
-                        d,
-                        id,
-                        trf("{path} is not a folder", &[("path", &path.display().to_string())]),
-                    );
-                }
+                w.path_edit = None; w.path_anchor = None;
+                let path = if let Some(rest) = text.strip_prefix("~/") { crate::config::home().join(rest) } else if text == "~" { crate::config::home() } else { PathBuf::from(text) };
+                if path.is_dir() { d.files.navigate(id, &path); } else { status(d, id, trf("{path} is not a folder", &[("path", &path.display().to_string())])); }
+                return;
             }
-            Key::Escape => w.path_edit = None,
+            Key::Escape => { w.path_edit = None; w.path_anchor = None; return; }
             _ => {}
         }
+        w.path_cursor = cursor.min(chars.len());
+        edit = chars.iter().collect();
+        w.path_edit = Some(edit);
         return;
     }
     if modifiers.ctrl {
@@ -1614,7 +1628,9 @@ pub fn key(d: &mut Desktop, id: u32, key: Key, modifiers: Modifiers) {
             }
             Key::Char('h') | Key::Char('H') => perform(d, id, MenuAction::ToggleHidden),
             Key::Char('l') | Key::Char('L') => {
-                w.path_edit = Some(w.dir.to_string_lossy().to_string());
+                let text = w.dir.to_string_lossy().to_string();
+                w.path_cursor = text.chars().count(); w.path_anchor = None;
+                w.path_edit = Some(text);
             }
             Key::Char('n') | Key::Char('N') if w.editable() => {
                 if modifiers.shift {
@@ -1922,6 +1938,83 @@ fn draw_sort_glyph(canvas: &mut Canvas<'_>, rect: Rect, color: Color) {
     }
 }
 
+/// Reads or writes the desktop's shared clipboard using the session helper.
+/// Wayland uses wl-clipboard; X11 uses xclip, with xsel as a fallback.
+fn system_clipboard(write: Option<&str>) -> Option<String> {
+    use std::io::Write as _;
+    use std::process::{Command, Stdio};
+    let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
+    let candidates: &[(&str, &[&str])] = if wayland {
+        if write.is_some() { &[("wl-copy", &[])] } else { &[("wl-paste", &["--no-newline"])] }
+    } else if write.is_some() {
+        &[("xclip", &["-selection", "clipboard", "-in"]), ("xsel", &["--clipboard", "--input"])]
+    } else {
+        &[("xclip", &["-selection", "clipboard", "-out"]), ("xsel", &["--clipboard", "--output"])]
+    };
+    for (program, args) in candidates {
+        let mut child = match Command::new(program)
+            .args(*args)
+            .stdin(if write.is_some() { Stdio::piped() } else { Stdio::null() })
+            .stdout(if write.is_some() { Stdio::null() } else { Stdio::piped() })
+            .stderr(Stdio::null())
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(_) => continue,
+        };
+        if let Some(text) = write {
+            if let Some(mut stdin) = child.stdin.take() {
+                if stdin.write_all(text.as_bytes()).is_err() { continue; }
+            }
+            let _ = child.wait();
+            return Some(String::new());
+        }
+        if let Ok(output) = child.wait_with_output() {
+            if output.status.success() {
+                return Some(String::from_utf8_lossy(&output.stdout).into_owned());
+            }
+        }
+    }
+    None
+}
+
+/// Draws the location field, including its text selection and insertion caret.
+fn draw_path_field(canvas: &mut Canvas<'_>, d: &mut Desktop, rect: Rect, text: &str, cursor: usize, anchor: Option<usize>, scale: i32) {
+    canvas.fill_rounded(rect, 5.0, ui::field_bg());
+    canvas.stroke_rounded(rect, 5.0, 1.0, ui::accent());
+    let inner = Rect::new(rect.x + 8, rect.y, rect.w - 16, rect.h);
+    let chars: Vec<char> = text.chars().collect();
+    let cursor = cursor.min(chars.len());
+    let selected = anchor.map(|a| (a.min(cursor), a.max(cursor)));
+    let prefix_width = |fonts: &mut Fonts, end: usize| -> i32 {
+        let value: String = chars[..end.min(chars.len())].iter().collect();
+        ui::text_width(fonts, &value, ui::FONT_SIZE, false, scale)
+    };
+    let full_width = prefix_width(&mut d.fonts, chars.len());
+    let mut first = 0usize;
+    while first < cursor && full_width > inner.w - 4 && prefix_width(&mut d.fonts, cursor) - prefix_width(&mut d.fonts, first) > inner.w - 4 {
+        first += 1;
+    }
+    let mut last = first;
+    while last < chars.len() && prefix_width(&mut d.fonts, last + 1) - prefix_width(&mut d.fonts, first) <= inner.w - 4 { last += 1; }
+    let shown: String = chars[first..last].iter().collect();
+    let x_at = |fonts: &mut Fonts, index: usize| inner.x + prefix_width(fonts, index) - prefix_width(fonts, first);
+    canvas.clip(inner);
+    if let Some((start, end)) = selected {
+        let start = start.max(first).min(last);
+        let end = end.max(first).min(last);
+        if end > start {
+            let x1 = x_at(&mut d.fonts, start);
+            let x2 = x_at(&mut d.fonts, end);
+            canvas.fill_rect(Rect::new(x1, inner.y + 3, x2 - x1, inner.h - 6), ui::accent());
+        }
+    }
+    ui::label(canvas, &mut d.fonts, &shown, inner, ui::FONT_SIZE, false, Align::Left, ui::text());
+    let caret_x = x_at(&mut d.fonts, cursor.max(first).min(last));
+    canvas.fill_rect(Rect::new(caret_x, inner.y + 7, 1, inner.h - 14), ui::text());
+    canvas.reset_clip();
+}
+
 /// Draws a text field with a caret.
 fn draw_field(
     canvas: &mut Canvas<'_>,
@@ -2063,7 +2156,7 @@ fn draw_toolbar(
     hover: Hit,
     scale: i32,
 ) {
-    let (can_back, can_forward, has_parent, view, dir, path_edit) = {
+    let (can_back, can_forward, has_parent, view, dir, path_edit, path_cursor, path_anchor) = {
         let w = &d.files.windows[index];
         (
             w.history_pos > 0,
@@ -2072,6 +2165,8 @@ fn draw_toolbar(
             w.view,
             w.dir.clone(),
             w.path_edit.clone(),
+            w.path_cursor,
+            w.path_anchor,
         )
     };
     canvas.fill_rect(Rect::new(0, TOOLBAR_H - 1, layout.frame.w, 1), ui::separator());
@@ -2098,7 +2193,7 @@ fn draw_toolbar(
     );
 
     if let Some(text) = path_edit {
-        draw_field(canvas, d, layout.path, &text, scale, true);
+        draw_path_field(canvas, d, layout.path, &text, path_cursor, path_anchor, scale);
     } else {
         canvas.fill_rounded(layout.path, 6.0, ui::field_bg());
         let rects = crumb_rects(&mut d.fonts, &dir, scale, layout.path);
