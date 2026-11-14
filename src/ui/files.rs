@@ -386,7 +386,9 @@ fn menu_submenu(w: &FilesWindow, menu: &ContextMenu) -> Option<(Rect, usize, Vec
             let right = parent.right();
             let left = parent.x - MENU_W;
             let x = if right + MENU_W <= window.right() - 4 { right } else { left.max(4) };
-            let y = top.min(window.bottom() - height - 4).max(4);
+            // Align the first application row with the parent menu row so
+            // the pointer can cross into the submenu without leaving its hit area.
+            let y = (top - 6).min(window.bottom() - height - 4).max(4);
             return Some((Rect::new(x, y, MENU_W, height), index, available));
         }
         top += match row { MenuRow::Action(..) => MENU_ROW, MenuRow::Separator => MENU_SEP };
