@@ -948,7 +948,14 @@ fn item_rows(d: &mut Desktop, id: u32) -> Vec<MenuRow> {
         .first()
         .filter(|f| selected.iter().all(|s| s.mime == f.mime && !s.is_dir))
         .map(|f| f.mime.clone());
-    let mut rows = vec![MenuRow::Action(tr("Open").to_string(), MenuAction::Open, true)];
+    let mut rows = vec![
+        MenuRow::Action(tr("Open").to_string(), MenuAction::Open, true),
+        MenuRow::Action(
+            tr("Edit").to_string(),
+            MenuAction::Edit,
+            selected.len() == 1 && !selected[0].is_dir,
+        ),
+    ];
     if single_dir && editable {
         rows.push(MenuRow::Action(
             tr("Open in new window").to_string(),
@@ -1003,6 +1010,11 @@ fn item_rows(d: &mut Desktop, id: u32) -> Vec<MenuRow> {
 fn folder_rows(w: &FilesWindow) -> Vec<MenuRow> {
     let mut rows = Vec::new();
     if w.editable() {
+        rows.push(MenuRow::Action(
+            tr("New file").to_string(),
+            MenuAction::NewFile,
+            true,
+        ));
         rows.push(MenuRow::Action(
             tr("New folder").to_string(),
             MenuAction::NewFolder,
@@ -1092,6 +1104,20 @@ fn perform(d: &mut Desktop, id: u32, action: MenuAction) {
                 entries::launch_with(&entry, &d.config, &paths);
             }
         }
+        MenuAction::Edit => {
+            let paths = w.selected_paths();
+            if paths.len() == 1 {
+                let handlers = d.files.mime.handlers("text/plain");
+                let editor = handlers.iter().find_map(|handler| {
+                    entries::load_entry(handler)
+                });
+                if let Some(entry) = editor {
+                    entries::launch_with(&entry, &d.config, &paths);
+                } else {
+                    status(d, id, tr("No text editor is installed").to_string());
+                }
+            }
+        }
         MenuAction::OpenInNewWindow => {
             let dirs: Vec<PathBuf> = w.selected_paths().into_iter().filter(|p| p.is_dir()).collect();
             for dir in dirs {
@@ -1133,6 +1159,7 @@ fn perform(d: &mut Desktop, id: u32, action: MenuAction) {
             }
         }
         MenuAction::NewFolder => new_folder(d, id),
+        MenuAction::NewFile => new_file(d, id),
         MenuAction::ToggleHidden => {
             w.show_hidden = !w.show_hidden;
             w.refilter();
@@ -1206,6 +1233,42 @@ fn new_folder(d: &mut Desktop, id: u32) {
             text: files::ops::file_name(&path),
         });
         scroll_to(w, index);
+    }
+}
+
+/// Creates an empty file and starts renaming it.
+fn new_file(d: &mut Desktop, id: u32) {
+    let Some(w) = d.files.window(id) else {
+        return;
+    };
+    if !w.editable() {
+        return;
+    }
+    let path = files::ops::unique_name(&w.dir, tr("New file"), false);
+    match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+        Ok(_) => {
+            d.files.refresh(id);
+            if let Some(w) = d.files.window_mut(id)
+                && let Some(index) = w.items.iter().position(|item| item.path == path)
+            {
+                w.selection.clear();
+                w.selection.insert(index);
+                w.cursor = Some(index);
+                w.rename = Some(Rename {
+                    index,
+                    text: files::ops::file_name(&path),
+                });
+                scroll_to(w, index);
+            }
+        }
+        Err(error) => status(
+            d,
+            id,
+            trf(
+                "Cannot create a file here: {error}",
+                &[("error", &error.to_string())],
+            ),
+        ),
     }
 }
 
