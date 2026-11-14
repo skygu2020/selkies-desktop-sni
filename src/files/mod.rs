@@ -345,6 +345,8 @@ pub struct FilesWindow {
     pub path_anchor: Option<usize>,
     /// Last location-field click, for double-click select-all.
     pub path_last_click: Option<u32>,
+    /// Whether the pointer is dragging a text selection in the location field.
+    pub path_selecting: bool,
     /// A message in the status bar, shown until its time.
     pub status: Option<(String, Instant)>,
     /// Where a drag over the window would drop.
@@ -549,6 +551,7 @@ impl Manager {
             path_cursor: 0,
             path_anchor: None,
             path_last_click: None,
+            path_selecting: false,
             status: None,
             drop_target: None,
             last_click: None,
