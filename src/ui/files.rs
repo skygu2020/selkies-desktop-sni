@@ -1080,10 +1080,6 @@ fn item_rows(d: &mut Desktop, id: u32) -> Vec<MenuRow> {
         }
     }
     if editable {
-        rows.push(MenuRow::Action(tr("Properties").to_string(), MenuAction::Properties(
-            selected.first().map(|item| item.path.clone()).unwrap_or_default()
-        ), selected.len() == 1));
-        rows.push(MenuRow::Separator);
         rows.push(MenuRow::Action(tr("Cut").to_string(), MenuAction::Cut, true));
         rows.push(MenuRow::Action(tr("Copy").to_string(), MenuAction::Copy, true));
         if single_dir {
@@ -1103,6 +1099,14 @@ fn item_rows(d: &mut Desktop, id: u32) -> Vec<MenuRow> {
             tr("Delete").to_string(),
             MenuAction::Delete,
             true,
+        ));
+        rows.push(MenuRow::Separator);
+        rows.push(MenuRow::Action(
+            tr("Properties").to_string(),
+            MenuAction::Properties(
+                selected.first().map(|item| item.path.clone()).unwrap_or_default()
+            ),
+            selected.len() == 1,
         ));
     }
     rows
@@ -2669,10 +2673,10 @@ fn draw_properties(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover
     ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Size"), size), Rect::new(frame.x + 16, frame.y + 92, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
     ui::label(canvas, &mut d.fonts, &format!("{}: {:04o}", tr("Permissions"), properties.mode), Rect::new(frame.x + 16, frame.y + 116, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
     for (column, label) in ["Read", "Write", "Execute"].iter().enumerate() {
-        ui::label(canvas, &mut d.fonts, label, Rect::new(frame.x + 132 + column as i32 * 92, frame.y + 128, 84, 20), ui::FONT_SMALL, true, Align::Center, ui::text());
+        ui::label(canvas, &mut d.fonts, tr(label), Rect::new(frame.x + 132 + column as i32 * 92, frame.y + 128, 84, 20), ui::FONT_SMALL, true, Align::Center, ui::text());
     }
     for (row, label) in ["Owner", "Group", "Others"].iter().enumerate() {
-        ui::label(canvas, &mut d.fonts, label, Rect::new(frame.x + 16, frame.y + 148 + row as i32 * 32, 108, 24), ui::FONT_SMALL, false, Align::Left, ui::text());
+        ui::label(canvas, &mut d.fonts, tr(label), Rect::new(frame.x + 16, frame.y + 148 + row as i32 * 32, 108, 24), ui::FONT_SMALL, false, Align::Left, ui::text());
     }
     for bit in 0..9 {
         let rect = property_bit_rect(frame, bit);
