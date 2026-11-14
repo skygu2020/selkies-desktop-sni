@@ -262,6 +262,8 @@ pub struct Properties {
     pub mode: u32,
     /// File length or the sum of regular files below a directory.
     pub size: Option<u64>,
+    /// Whether a directory's total size is still being calculated.
+    pub size_pending: bool,
 }
 
 /// Where a drag over the window would drop.
@@ -759,6 +761,18 @@ impl Manager {
                     self.thumbs.insert(key, image.map(Rc::new));
                     for window in &mut self.windows {
                         window.dirty = true;
+                    }
+                }
+                Message::DirectorySize { path, size } => {
+                    for window in &mut self.windows {
+                        if let Some(properties) = window.properties.as_mut()
+                            && properties.path == path
+                            && properties.size_pending
+                        {
+                            properties.size = size;
+                            properties.size_pending = false;
+                            window.dirty = true;
+                        }
                     }
                 }
             }
