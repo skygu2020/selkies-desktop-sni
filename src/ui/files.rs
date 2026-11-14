@@ -1672,13 +1672,35 @@ pub fn key(d: &mut Desktop, id: u32, key: Key, modifiers: Modifiers) {
                 next = len;
             }
             Key::Char(c) if modifiers.ctrl && matches!(c, 'c' | 'C') => {
-                if end > start { let value: String = chars[start..end].iter().collect(); let _ = system_clipboard(Some(&value)); }
+                if end > start {
+                    let value: String = chars[start..end].iter().collect();
+                    if system_clipboard(Some(&value)).is_none() {
+                        w.status = Some(("Clipboard unavailable: install wl-clipboard, xclip or xsel".to_string(), Instant::now()));
+                    }
+                } else {
+                    w.status = Some(("Select text before copying".to_string(), Instant::now()));
+                }
             }
             Key::Char(c) if modifiers.ctrl && matches!(c, 'x' | 'X') => {
-                if end > start { let value: String = chars[start..end].iter().collect(); let _ = system_clipboard(Some(&value)); chars.drain(start..end); next = start; rename.anchor = None; }
+                if end > start {
+                    let value: String = chars[start..end].iter().collect();
+                    if system_clipboard(Some(&value)).is_some() {
+                        chars.drain(start..end);
+                        next = start;
+                        rename.anchor = None;
+                    } else {
+                        w.status = Some(("Clipboard unavailable: install wl-clipboard, xclip or xsel".to_string(), Instant::now()));
+                    }
+                }
             }
             Key::Char(c) if modifiers.ctrl && matches!(c, 'v' | 'V') => {
-                if let Some(value) = system_clipboard(None) { chars.splice(start..end, value.chars()); next = start + value.chars().count(); rename.anchor = None; }
+                if let Some(value) = system_clipboard(None) {
+                    chars.splice(start..end, value.chars());
+                    next = start + value.chars().count();
+                    rename.anchor = None;
+                } else {
+                    w.status = Some(("Clipboard unavailable or empty".to_string(), Instant::now()));
+                }
             }
             Key::Char(c) if !modifiers.ctrl => { chars.splice(start..end, [c]); next = start + 1; rename.anchor = None; }
             Key::Backspace => {
@@ -1713,13 +1735,35 @@ pub fn key(d: &mut Desktop, id: u32, key: Key, modifiers: Modifiers) {
         match key {
             Key::Char(c) if modifiers.ctrl && matches!(c, 'a' | 'A') => { w.path_anchor = Some(0); cursor = len; }
             Key::Char(c) if modifiers.ctrl && matches!(c, 'c' | 'C') => {
-                if end > start { let value: String = chars[start..end].iter().collect(); let _ = system_clipboard(Some(&value)); }
+                if end > start {
+                    let value: String = chars[start..end].iter().collect();
+                    if system_clipboard(Some(&value)).is_none() {
+                        w.status = Some(("Clipboard unavailable: install wl-clipboard, xclip or xsel".to_string(), Instant::now()));
+                    }
+                } else {
+                    w.status = Some(("Select text before copying".to_string(), Instant::now()));
+                }
             }
             Key::Char(c) if modifiers.ctrl && matches!(c, 'x' | 'X') => {
-                if end > start { let value: String = chars[start..end].iter().collect(); let _ = system_clipboard(Some(&value)); chars.drain(start..end); cursor = start; w.path_anchor = None; }
+                if end > start {
+                    let value: String = chars[start..end].iter().collect();
+                    if system_clipboard(Some(&value)).is_some() {
+                        chars.drain(start..end);
+                        cursor = start;
+                        w.path_anchor = None;
+                    } else {
+                        w.status = Some(("Clipboard unavailable: install wl-clipboard, xclip or xsel".to_string(), Instant::now()));
+                    }
+                }
             }
             Key::Char(c) if modifiers.ctrl && matches!(c, 'v' | 'V') => {
-                if let Some(value) = system_clipboard(None) { chars.splice(start..end, value.chars()); cursor = start + value.chars().count(); w.path_anchor = None; }
+                if let Some(value) = system_clipboard(None) {
+                    chars.splice(start..end, value.chars());
+                    cursor = start + value.chars().count();
+                    w.path_anchor = None;
+                } else {
+                    w.status = Some(("Clipboard unavailable or empty".to_string(), Instant::now()));
+                }
             }
             Key::Char(c) if !modifiers.ctrl => { chars.splice(start..end, [c]); cursor = start + 1; w.path_anchor = None; }
             Key::Backspace => { if end > start { chars.drain(start..end); cursor = start; w.path_anchor = None; } else if cursor > 0 { chars.remove(cursor - 1); cursor -= 1; } }
