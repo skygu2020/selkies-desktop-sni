@@ -401,7 +401,7 @@ pub fn hit(d: &mut Desktop, id: u32, x: f64, y: f64) -> Hit {
         let scale = d.files.windows[index].geometry.scale;
         let rects = crumb_rects(&mut d.fonts, &dir, scale, layout.path);
         let w = &d.files.windows[index];
-        if w.menu.is_none() && w.confirm.is_none() {
+        if w.menu.is_none() && w.confirm.is_none() && w.properties.is_none() {
             for (i, rect) in rects {
                 if rect.contains(x, y) {
                     return Hit::Crumb(i);
@@ -857,7 +857,7 @@ pub fn pointer_button(
                     open_item(d, id, cursor);
                 }
             }
-            Hit::MenuRow(_) | Hit::Confirm(_) | Hit::None => {}
+            Hit::MenuRow(_) | Hit::Confirm(_) | Hit::Property(_) | Hit::None => {}
         },
         Button::Right => match hit {
             Hit::Item(i) => {
@@ -2643,7 +2643,10 @@ fn draw_properties(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover
     let w = &d.files.windows[index];
     let Some(properties) = w.properties.clone() else { return; };
     let (frame, cancel, apply) = properties_rects(w);
-    canvas.fill_rect(frame.inflate(400), rgba(0, 0, 0, 0x70));
+    canvas.fill_rect(
+        Rect::new(0, 0, w.geometry.width, w.geometry.height),
+        rgba(0, 0, 0, 0x70),
+    );
     ui::draw_popup_frame(canvas, frame);
     ui::label(canvas, &mut d.fonts, tr("Properties"), Rect::new(frame.x + 16, frame.y + 10, frame.w - 32, 28), ui::FONT_SIZE + 1.0, true, Align::Left, ui::text());
     let name = files::ops::file_name(&properties.path);
@@ -2655,7 +2658,7 @@ fn draw_properties(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover
     ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Size"), size), Rect::new(frame.x + 16, frame.y + 92, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
     ui::label(canvas, &mut d.fonts, &format!("{}: {:04o}", tr("Permissions"), properties.mode), Rect::new(frame.x + 16, frame.y + 116, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
     for (column, label) in ["Owner", "Group", "Others"].iter().enumerate() {
-        ui::label(canvas, &mut d.fonts, label, Rect::new(frame.x + 132 + column as i32 * 92, frame.y + 174, 84, 20), ui::FONT_SMALL, true, Align::Center, ui::text());
+        ui::label(canvas, &mut d.fonts, label, Rect::new(frame.x + 132 + column as i32 * 92, frame.y + 128, 84, 20), ui::FONT_SMALL, true, Align::Center, ui::text());
     }
     for (row, label) in ["Read", "Write", "Execute"].iter().enumerate() {
         ui::label(canvas, &mut d.fonts, label, Rect::new(frame.x + 16, frame.y + 148 + row as i32 * 32, 108, 24), ui::FONT_SMALL, false, Align::Left, ui::text());
