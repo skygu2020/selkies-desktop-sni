@@ -529,6 +529,19 @@ pub fn hit(d: &mut Desktop, id: u32, x: f64, y: f64) -> Hit {
 pub fn pointer_motion(d: &mut Desktop, id: u32, x: f64, y: f64) {
     let places = d.files.places.len();
     if let Some(w) = d.files.window_mut(id)
+        && let Some(rename) = w.rename.as_mut()
+        && rename.selecting
+    {
+        let field = item_rect(w, layout(w).content, rename.index);
+        let ratio = ((x - (field.x + 6) as f64) / (field.w - 12).max(1) as f64).clamp(0.0, 1.0);
+        if rename.anchor.is_none() { rename.anchor = Some(rename.cursor); }
+        rename.cursor = (ratio * rename.text.chars().count() as f64).round() as usize;
+        rename.caret_visible = true;
+        rename.blink_at = Instant::now() + std::time::Duration::from_millis(500);
+        w.dirty = true;
+        return;
+    }
+    if let Some(w) = d.files.window_mut(id)
         && w.path_selecting
         && let Some(text) = w.path_edit.as_ref()
     {
@@ -660,6 +673,7 @@ pub fn pointer_button(
 ) {
     if !pressed {
         if button == Button::Left && let Some(w) = d.files.window_mut(id) { w.path_selecting = false; }
+        if button == Button::Left && let Some(rename) = d.files.window_mut(id).and_then(|w| w.rename.as_mut()) { rename.selecting = false; }
         if button == Button::Left
             && let Some(w) = d.files.window_mut(id)
             && w.bar_drag.take().is_some()
@@ -689,6 +703,28 @@ pub fn pointer_button(
         return;
     };
     w.dirty = true;
+    if button == Button::Left
+        && let Hit::Item(item_index) = hit
+        && let Some(rename) = w.rename.as_mut()
+        && rename.index == item_index
+    {
+        let field = item_rect(w, layout(w).content, item_index);
+        let ratio = ((x - (field.x + 6) as f64) / (field.w - 12).max(1) as f64).clamp(0.0, 1.0);
+        let len = rename.text.chars().count();
+        if rename.last_click.is_some_and(|last| time.wrapping_sub(last) <= 400) {
+            rename.anchor = Some(0);
+            rename.cursor = len;
+        } else {
+            rename.cursor = (ratio * len as f64).round() as usize;
+            rename.anchor = None;
+        }
+        rename.last_click = Some(time);
+        rename.selecting = true;
+        rename.caret_visible = true;
+        rename.blink_at = Instant::now() + std::time::Duration::from_millis(500);
+        w.dirty = true;
+        return;
+    }
     if let Some(menu) = w.menu.take() {
         if let Hit::MenuRow(row) = hit
             && button == Button::Left
@@ -1595,16 +1631,50 @@ pub fn key(d: &mut Desktop, id: u32, key: Key, modifiers: Modifiers) {
         }
         return;
     }
-    if let Some(rename) = w.rename.as_mut() {
+    if w.rename.is_some() {
+        let rename = w.rename.as_mut().unwrap();
+        let mut chars: Vec<char> = rename.text.chars().collect();
+        let len = chars.len();
+        let cursor = rename.cursor.min(len);
+        let (start, end) = rename.anchor.map_or((cursor, cursor), |a| (a.min(cursor), a.max(cursor)));
+        let mut next = cursor;
         match key {
-            Key::Char(c) if !modifiers.ctrl => rename.text.push(c),
-            Key::Backspace => {
-                rename.text.pop();
+            Key::Char(c) if modifiers.ctrl && matches!(c, 'a' | 'A') => {
+                rename.anchor = Some(0);
+                next = len;
             }
-            Key::Enter => commit_rename(d, id),
-            Key::Escape => w.rename = None,
+            Key::Char(c) if modifiers.ctrl && matches!(c, 'c' | 'C') => {
+                if end > start { let value: String = chars[start..end].iter().collect(); let _ = system_clipboard(Some(&value)); }
+            }
+            Key::Char(c) if modifiers.ctrl && matches!(c, 'x' | 'X') => {
+                if end > start { let value: String = chars[start..end].iter().collect(); let _ = system_clipboard(Some(&value)); chars.drain(start..end); next = start; rename.anchor = None; }
+            }
+            Key::Char(c) if modifiers.ctrl && matches!(c, 'v' | 'V') => {
+                if let Some(value) = system_clipboard(None) { chars.splice(start..end, value.chars()); next = start + value.chars().count(); rename.anchor = None; }
+            }
+            Key::Char(c) if !modifiers.ctrl => { chars.splice(start..end, [c]); next = start + 1; rename.anchor = None; }
+            Key::Backspace => {
+                if end > start { chars.drain(start..end); next = start; rename.anchor = None; }
+                else if cursor > 0 { chars.remove(cursor - 1); next = cursor - 1; }
+            }
+            Key::Delete => {
+                if end > start { chars.drain(start..end); next = start; rename.anchor = None; }
+                else if cursor < len { chars.remove(cursor); }
+            }
+            Key::Left | Key::Right | Key::Home | Key::End => {
+                next = match key { Key::Left => cursor.saturating_sub(1), Key::Right => (cursor + 1).min(len), Key::Home => 0, _ => len };
+                if modifiers.shift { if rename.anchor.is_none() { rename.anchor = Some(cursor); } }
+                else { rename.anchor = None; }
+            }
+            Key::Enter => { commit_rename(d, id); return; }
+            Key::Escape => { w.rename = None; return; }
             _ => {}
         }
+        rename.text = chars.iter().collect();
+        rename.cursor = next.min(chars.len());
+        rename.caret_visible = true;
+        rename.blink_at = Instant::now() + std::time::Duration::from_millis(500);
+        w.dirty = true;
         return;
     }
     if w.path_edit.is_some() {
