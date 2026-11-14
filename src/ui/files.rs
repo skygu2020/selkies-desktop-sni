@@ -14,7 +14,7 @@ use crate::entries;
 use crate::event::{Button, Modifiers, Request};
 use crate::files::{
     self, Clipboard, Confirm, ContextMenu, DropTarget, FilesWindow, Item, MenuAction, MenuRow, PickTarget,
-    Press, Properties, Rename, ScrollArea, SortKey, View,
+    Picker, Press, Properties, Rename, ScrollArea, SortKey, View,
 };
 use crate::geom::Rect;
 use crate::i18n::{tr, trf};
@@ -1029,8 +1029,14 @@ pub fn pointer_button(
             }
             Hit::PickerButton(0) => close(d, id),
             Hit::PickerButton(_) => {
-                if let Some(cursor) = w.cursor.filter(|c| w.selection.contains(c)) {
-                    open_item(d, id, cursor);
+                if let Some(picker) = w.picker.clone() {
+                    if let PickTarget::Extract { window, archive } = picker.target {
+                        let dest = w.dir.clone();
+                        close(d, id);
+                        d.files.extract(window, archive, dest);
+                    } else if let Some(cursor) = w.cursor.filter(|c| w.selection.contains(c)) {
+                        open_item(d, id, cursor);
+                    }
                 }
             }
             Hit::MenuRow(_) | Hit::Confirm(_) | Hit::Property(_) | Hit::None => {}
@@ -1121,6 +1127,7 @@ fn open_item(d: &mut Desktop, id: u32, index: usize) {
         let (key, monitor) = match picker.target {
             PickTarget::Wallpaper { key, monitor } => (key, monitor),
             PickTarget::StartIcon => ("start_icon", None),
+            PickTarget::Extract { .. } => return,
         };
         let value = item.path.to_string_lossy().to_string();
         if let Err(error) = crate::config::save(&[(key, value)]) {
@@ -1237,6 +1244,19 @@ fn item_rows(d: &mut Desktop, id: u32) -> Vec<MenuRow> {
             true,
         ));
     }
+    if selected.len() == 1 && !selected[0].is_dir && is_archive(&selected[0].path) {
+        let archive = selected[0].path.clone();
+        rows.push(MenuRow::Action(
+            tr("Extract here").to_string(),
+            MenuAction::ExtractHere(archive.clone()),
+            true,
+        ));
+        rows.push(MenuRow::Action(
+            tr("Extract to...").to_string(),
+            MenuAction::ExtractTo(archive),
+            true,
+        ));
+    }
     if single_dir && editable {
         rows.push(MenuRow::Action(
             tr("Open in new window").to_string(),
@@ -1292,6 +1312,17 @@ fn item_rows(d: &mut Desktop, id: u32) -> Vec<MenuRow> {
         ));
     }
     rows
+}
+
+/// Whether a filename has an archive format supported by the extractor.
+fn is_archive(path: &Path) -> bool {
+    let name = path.file_name().unwrap_or_default().to_string_lossy().to_ascii_lowercase();
+    [
+        ".zip", ".7z", ".rar", ".tar", ".tar.gz", ".tgz", ".tar.xz", ".txz",
+        ".tar.bz2", ".tbz2", ".tar.zst", ".tzst",
+    ]
+    .iter()
+    .any(|suffix| name.ends_with(suffix))
 }
 
 /// The context menu rows for empty space of the folder.
@@ -1391,6 +1422,20 @@ fn perform(d: &mut Desktop, id: u32, action: MenuAction) {
             if let Some(entry) = entries::load_entry(&handler) {
                 entries::launch_with(&entry, &d.config, &paths);
             }
+        }
+        MenuAction::ExtractHere(archive) => {
+            let dest = w.dir.clone();
+            d.files.extract(id, archive, dest);
+        }
+        MenuAction::ExtractTo(archive) => {
+            let dir = w.dir.clone();
+            d.open_files(
+                Some(dir),
+                Some(Picker {
+                    target: PickTarget::Extract { window: id, archive },
+                    mimes: Vec::new(),
+                }),
+            );
         }
         MenuAction::Properties(path) => {
             if let Ok(metadata) = std::fs::metadata(&path) {
@@ -3027,13 +3072,22 @@ fn draw_status(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, layout: &
 /// Draws the picker footer.
 fn draw_footer(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, footer: Rect, hover: Hit) {
     canvas.fill_rect(Rect::new(footer.x, footer.y, footer.w, 1), ui::separator());
-    let chosen = {
+    let (chosen, extract_target) = {
         let w = &d.files.windows[index];
-        w.cursor
-            .filter(|c| w.selection.contains(c))
-            .and_then(|c| w.items.get(c))
-            .filter(|i| !i.is_dir)
-            .map(|i| i.name.clone())
+        let extract = matches!(
+            w.picker.as_ref().map(|picker| &picker.target),
+            Some(PickTarget::Extract { .. })
+        );
+        let chosen = if extract {
+            Some(w.dir.to_string_lossy().to_string())
+        } else {
+            w.cursor
+                .filter(|c| w.selection.contains(c))
+                .and_then(|c| w.items.get(c))
+                .filter(|i| !i.is_dir)
+                .map(|i| i.name.clone())
+        };
+        (chosen, extract)
     };
     let (cancel, open) = footer_buttons(footer);
     ui::label(
@@ -3069,7 +3123,7 @@ fn draw_footer(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, footer: R
         canvas,
         d,
         open,
-        tr("Open"),
+        if extract_target { tr("Select folder") } else { tr("Open") },
         hover == Hit::PickerButton(1),
         chosen.is_some(),
     );
