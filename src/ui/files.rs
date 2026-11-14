@@ -2657,10 +2657,10 @@ fn draw_properties(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover
     ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Type"), kind), Rect::new(frame.x + 16, frame.y + 70, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
     ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Size"), size), Rect::new(frame.x + 16, frame.y + 92, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
     ui::label(canvas, &mut d.fonts, &format!("{}: {:04o}", tr("Permissions"), properties.mode), Rect::new(frame.x + 16, frame.y + 116, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
-    for (column, label) in ["Owner", "Group", "Others"].iter().enumerate() {
+    for (column, label) in ["Read", "Write", "Execute"].iter().enumerate() {
         ui::label(canvas, &mut d.fonts, label, Rect::new(frame.x + 132 + column as i32 * 92, frame.y + 128, 84, 20), ui::FONT_SMALL, true, Align::Center, ui::text());
     }
-    for (row, label) in ["Read", "Write", "Execute"].iter().enumerate() {
+    for (row, label) in ["Owner", "Group", "Others"].iter().enumerate() {
         ui::label(canvas, &mut d.fonts, label, Rect::new(frame.x + 16, frame.y + 148 + row as i32 * 32, 108, 24), ui::FONT_SMALL, false, Align::Left, ui::text());
     }
     for bit in 0..9 {
