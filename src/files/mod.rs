@@ -535,6 +535,7 @@ impl Manager {
     /// # Returns
     /// The window's number.
     pub fn open(&mut self, dir: Option<PathBuf>, picker: Option<Picker>, defaults: Defaults) -> u32 {
+        self.places = places();
         let id = self.next_id;
         self.next_id += 1;
         let dir = dir.filter(|d| d.is_dir()).unwrap_or_else(config::home);
@@ -662,6 +663,7 @@ impl Manager {
     /// # Arguments
     /// * `id` - The window.
     pub fn refresh(&mut self, id: u32) {
+        self.places = places();
         let Some(window) = self.windows.iter_mut().find(|w| w.id == id) else {
             return;
         };
@@ -1046,8 +1048,7 @@ pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
         .then_with(|| a.cmp(b))
 }
 
-/// The sidebar places: the home directory, the XDG user directories that
-/// exist, and the root of the filesystem.
+/// The sidebar places: user folders, the filesystem root, and mounted volumes.
 pub fn places() -> Vec<Place> {
     let home = config::home();
     let mut list = vec![Place {
@@ -1078,7 +1079,78 @@ pub fn places() -> Vec<Place> {
         path: PathBuf::from("/"),
         icon: "drive-harddisk",
     });
+
+    let mut mounts = mounted_volumes();
+    mounts.sort();
+    for path in mounts {
+        if list.iter().any(|place| place.path == path) {
+            continue;
+        }
+        list.push(Place {
+            name: display_name(&path),
+            path,
+            icon: "drive-removable-media",
+        });
+    }
     list
+}
+
+/// Reads mounted storage locations from Linux mountinfo. Device-backed mounts
+/// are included, as are user-visible mount locations under /media, /run/media
+/// and /mnt. Virtual kernel filesystems are therefore left out.
+fn mounted_volumes() -> Vec<PathBuf> {
+    let Ok(mountinfo) = std::fs::read_to_string("/proc/self/mountinfo") else {
+        return Vec::new();
+    };
+    let mut mounts = Vec::new();
+    for line in mountinfo.lines() {
+        let Some((before, after)) = line.split_once(" - ") else {
+            continue;
+        };
+        let fields: Vec<&str> = before.split_whitespace().collect();
+        let filesystem: Vec<&str> = after.split_whitespace().collect();
+        if fields.len() <= 4 || filesystem.len() <= 1 {
+            continue;
+        }
+        let mountpoint = PathBuf::from(unescape_mount_field(fields[4]));
+        let source = filesystem[1];
+        let user_mount = ["/media/", "/run/media/", "/mnt/"]
+            .iter()
+            .any(|prefix| mountpoint.to_string_lossy().starts_with(prefix));
+        if (source.starts_with("/dev/") || user_mount)
+            && mountpoint.is_dir()
+            && mountpoint != Path::new("/")
+        {
+            mounts.push(mountpoint);
+        }
+    }
+    mounts.sort();
+    mounts.dedup();
+    mounts
+}
+
+/// Decodes the octal escapes used for spaces, tabs, newlines and backslashes
+/// in /proc/self/mountinfo path fields.
+fn unescape_mount_field(field: &str) -> String {
+    let bytes = field.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\\'
+            && i + 3 < bytes.len()
+            && bytes[i + 1..i + 4].iter().all(u8::is_ascii_digit)
+        {
+            let value = (bytes[i + 1] - b'0') * 64
+                + (bytes[i + 2] - b'0') * 8
+                + (bytes[i + 3] - b'0');
+            decoded.push(value);
+            i += 4;
+        } else {
+            decoded.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8_lossy(&decoded).into_owned()
 }
 
 /// Reads the XDG user directories file.
