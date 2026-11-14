@@ -188,3 +188,4 @@ Extract here = 在此处解压
 Extract to... = 解压到...
 Select folder = 选择文件夹
 Choose an extraction folder = 选择解压目标文件夹
+Open with = 打开方式
