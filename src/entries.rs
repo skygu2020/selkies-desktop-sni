@@ -626,9 +626,8 @@ fn program_disabled(program: &str) -> bool {
 }
 
 /// The terminal command to wrap entries in, as argv without the program to
-/// run.  Under Wayland foot is tried before the distribution's alternatives
-/// link, which points at an X terminal; foot cannot run without Wayland, so
-/// elsewhere the link keeps its say.
+/// run. Alacritty is the default on both X11 and Wayland; foot remains the
+/// next preference on Wayland before distribution-specific alternatives.
 ///
 /// # Arguments
 /// * `config` - The settings, whose `terminal` takes precedence.
@@ -650,9 +649,8 @@ pub fn find_terminal(config: &Config) -> Option<Vec<String>> {
         }
     }
     let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some_and(|d| !d.is_empty());
-    let preferred = if wayland { Some("foot") } else { None };
-    preferred
-        .into_iter()
+    std::iter::once("alacritty")
+        .chain(wayland.then_some("foot"))
         .chain(TERMINALS.iter().copied())
         .find(|t| resolve_program(t).is_some())
         .map(|t| vec![t.to_string(), "-e".to_string()])
