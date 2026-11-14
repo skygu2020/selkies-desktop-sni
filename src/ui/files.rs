@@ -1103,7 +1103,7 @@ pub fn pointer_button(
                     }
                 }
             }
-            Hit::MenuRow(_) | Hit::Confirm(_) | Hit::Property(_) | Hit::None => {}
+            Hit::MenuRow(_) | Hit::SubmenuRow(_) | Hit::Confirm(_) | Hit::Property(_) | Hit::None => {}
         },
         Button::Right => match hit {
             Hit::Item(i) => {
