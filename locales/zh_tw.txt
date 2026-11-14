@@ -181,3 +181,6 @@ Cannot read file properties = 無法讀取檔案屬性
 Cannot change permissions: {error} = 無法變更權限：{error}
 Run = 執行
 Run in terminal = 在終端機中執行
+Edit = 編輯
+New file = 新增檔案
+No text editor is installed = 未安裝文字編輯器
