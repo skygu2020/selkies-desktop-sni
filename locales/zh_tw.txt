@@ -184,3 +184,7 @@ Run in terminal = 在終端機中執行
 Edit = 編輯
 New file = 新增檔案
 No text editor is installed = 未安裝文字編輯器
+Extract here = 解壓縮至此
+Extract to... = 解壓縮到...
+Select folder = 選擇資料夾
+Choose an extraction folder = 選擇解壓縮目標資料夾
