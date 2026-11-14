@@ -96,6 +96,8 @@ pub enum Hit {
     Content,
     /// A context menu row.
     MenuRow(usize),
+    /// An application in an open context-menu submenu.
+    SubmenuRow(usize),
     /// A confirmation button: cancel, then delete.
     Confirm(usize),
     /// A properties dialog control: permission bit, cancel (9), apply (10).
@@ -367,6 +369,40 @@ fn menu_row_at(w: &FilesWindow, menu: &ContextMenu, x: f64, y: f64) -> Option<us
     None
 }
 
+/// Geometry and available applications for the open-with submenu.
+fn menu_submenu(w: &FilesWindow, menu: &ContextMenu) -> Option<(Rect, usize, Vec<(String, String)>)> {
+    let parent = menu_rect(w, menu);
+    let mut top = parent.y + 6;
+    for (index, row) in menu.rows.iter().enumerate() {
+        if let MenuRow::Action(_, MenuAction::OpenWithMenu(handlers), true) = row {
+            let available: Vec<(String, String)> = handlers.iter().filter_map(|handler| {
+                entries::load_entry(handler).map(|entry| (handler.clone(), entry.name))
+            }).collect();
+            if available.is_empty() {
+                return None;
+            }
+            let height = available.len() as i32 * MENU_ROW + 12;
+            let window = Rect::new(0, 0, w.geometry.width, w.geometry.height);
+            let right = parent.right();
+            let left = parent.x - MENU_W;
+            let x = if right + MENU_W <= window.right() - 4 { right } else { left.max(4) };
+            let y = top.min(window.bottom() - height - 4).max(4);
+            return Some((Rect::new(x, y, MENU_W, height), index, available));
+        }
+        top += match row { MenuRow::Action(..) => MENU_ROW, MenuRow::Separator => MENU_SEP };
+    }
+    None
+}
+
+/// The row of an open submenu at a point.
+fn submenu_row_at(rect: Rect, x: f64, y: f64, count: usize) -> Option<usize> {
+    if !rect.contains(x, y) {
+        return None;
+    }
+    let row = ((y - (rect.y + 6) as f64) / MENU_ROW as f64).floor();
+    (row >= 0.0 && (row as usize) < count).then_some(row as usize)
+}
+
 /// The properties dialog and its two buttons.
 fn properties_rects(w: &FilesWindow) -> (Rect, Rect, Rect) {
     let width = 460.min(w.geometry.width - 20);
@@ -429,6 +465,11 @@ pub fn hit(d: &mut Desktop, id: u32, x: f64, y: f64) -> Hit {
     }
     let w = &d.files.windows[index];
     if let Some(menu) = &w.menu {
+        if let Some((rect, _, applications)) = menu_submenu(w, menu)
+            && let Some(row) = submenu_row_at(rect, x, y, applications.len())
+        {
+            return Hit::SubmenuRow(row);
+        }
         return match menu_row_at(w, menu, x, y) {
             Some(row) => Hit::MenuRow(row),
             None => Hit::None,
@@ -821,38 +862,27 @@ pub fn pointer_button(
         return;
     }
     if let Some(menu) = w.menu.take() {
-        if let Hit::MenuRow(row) = hit
-            && button == Button::Left
-            && let Some(MenuRow::Action(_, action, true)) = menu.rows.get(row)
-        {
-            match action.clone() {
-                MenuAction::OpenWithMenu(handlers) => {
-                    let mut rows = vec![MenuRow::Action(
-                        format!("‹ {}", tr("Back")),
-                        MenuAction::OpenWithBack,
-                        true,
-                    )];
-                    for handler in handlers {
-                        if let Some(entry) = entries::load_entry(&handler) {
-                            rows.push(MenuRow::Action(
-                                trf("Open with {app}", &[("app", &entry.name)]),
-                                MenuAction::OpenWith(handler),
-                                true,
-                            ));
-                        }
-                    }
-                    if let Some(window) = d.files.window_mut(id) {
-                        window.menu = Some(ContextMenu { x: menu.x, y: menu.y, rows });
+        match hit {
+            Hit::SubmenuRow(row) if button == Button::Left => {
+                if let Some((_, _, applications)) = menu_submenu(w, &menu)
+                    && let Some((handler, _)) = applications.get(row)
+                {
+                    let handler = handler.clone();
+                    let paths = w.selected_paths();
+                    if let Some(entry) = entries::load_entry(&handler) {
+                        entries::launch_with(&entry, &d.config, &paths);
                     }
                 }
-                MenuAction::OpenWithBack => {
-                    let rows = item_rows(d, id);
-                    if let Some(window) = d.files.window_mut(id) {
-                        window.menu = Some(ContextMenu { x: menu.x, y: menu.y, rows });
-                    }
-                }
-                action => perform(d, id, action),
             }
+            Hit::MenuRow(row) if button == Button::Left => {
+                if let Some(MenuRow::Action(_, action, true)) = menu.rows.get(row) {
+                    match action.clone() {
+                        MenuAction::OpenWithMenu(_) => w.menu = Some(menu),
+                        action => perform(d, id, action),
+                    }
+                }
+            }
+            _ => {}
         }
         update_hover(d, id, x, y);
         return;
@@ -1467,7 +1497,7 @@ fn perform(d: &mut Desktop, id: u32, action: MenuAction) {
                 entries::launch_with(&entry, &d.config, &paths);
             }
         }
-        MenuAction::OpenWithMenu(_) | MenuAction::OpenWithBack => {}
+        MenuAction::OpenWithMenu(_) => {}
         MenuAction::ExtractHere(archive) => {
             let dest = w.dir.clone();
             d.files.extract(id, archive, dest);
@@ -3300,23 +3330,63 @@ fn draw_menu(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover: Hit)
                 );
                 y += MENU_SEP;
             }
-            MenuRow::Action(label, _, enabled) => {
+            MenuRow::Action(label, action, enabled) => {
                 let rect = Rect::new(frame.x + 6, y, frame.w - 12, MENU_ROW);
-                if hover == Hit::MenuRow(i) && *enabled {
+                let submenu_hovered = matches!(hover, Hit::SubmenuRow(_));
+                if (hover == Hit::MenuRow(i)
+                    || (submenu_hovered && matches!(action, MenuAction::OpenWithMenu(_))))
+                    && *enabled
+                {
                     canvas.fill_rounded(rect, 5.0, ui::hover_bg());
                 }
                 ui::label(
                     canvas,
                     &mut d.fonts,
                     label,
-                    Rect::new(rect.x + 10, rect.y, rect.w - 20, rect.h),
+                    Rect::new(rect.x + 10, rect.y, rect.w - 34, rect.h),
                     ui::FONT_SIZE,
                     false,
                     Align::Left,
                     if *enabled { ui::text() } else { ui::text_dim() },
                 );
+                if matches!(action, MenuAction::OpenWithMenu(_)) {
+                    ui::label(
+                        canvas,
+                        &mut d.fonts,
+                        "›",
+                        Rect::new(rect.right() - 24, rect.y, 14, rect.h),
+                        ui::FONT_SIZE,
+                        false,
+                        Align::Center,
+                        ui::text(),
+                    );
+                }
                 y += MENU_ROW;
             }
+        }
+    }
+    if let Some((submenu, parent_row, applications)) = menu_submenu(&d.files.windows[index], &menu)
+        && (hover == Hit::MenuRow(parent_row) || matches!(hover, Hit::SubmenuRow(_)))
+    {
+        canvas.fill_rounded(submenu.inflate(1), ui::popup_radius(), rgba(0, 0, 0, 0x50));
+        ui::draw_popup_frame(canvas, submenu);
+        let mut app_y = submenu.y + 6;
+        for (row, (_, name)) in applications.iter().enumerate() {
+            let rect = Rect::new(submenu.x + 6, app_y, submenu.w - 12, MENU_ROW);
+            if hover == Hit::SubmenuRow(row) {
+                canvas.fill_rounded(rect, 5.0, ui::hover_bg());
+            }
+            ui::label(
+                canvas,
+                &mut d.fonts,
+                name,
+                Rect::new(rect.x + 10, rect.y, rect.w - 20, rect.h),
+                ui::FONT_SIZE,
+                false,
+                Align::Left,
+                ui::text(),
+            );
+            app_y += MENU_ROW;
         }
     }
 }
