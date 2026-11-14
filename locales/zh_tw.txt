@@ -188,3 +188,4 @@ Extract here = 解壓縮至此
 Extract to... = 解壓縮到...
 Select folder = 選擇資料夾
 Choose an extraction folder = 選擇解壓縮目標資料夾
+Open with = 開啟方式
