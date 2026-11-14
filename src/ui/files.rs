@@ -2075,13 +2075,29 @@ fn draw_sort_glyph(canvas: &mut Canvas<'_>, rect: Rect, color: Color) {
 fn system_clipboard(write: Option<&str>) -> Option<String> {
     use std::io::Write as _;
     use std::process::{Command, Stdio};
+
     let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
     let candidates: &[(&str, &[&str])] = match (wayland, write.is_some()) {
-        (true, true) => &[("wl-copy", &[]), ("xclip", &["-selection", "clipboard", "-in"]), ("xsel", &["--clipboard", "--input"])],
-        (true, false) => &[("wl-paste", &["--no-newline"]), ("xclip", &["-selection", "clipboard", "-out"]), ("xsel", &["--clipboard", "--output"])],
-        (false, true) => &[("xclip", &["-selection", "clipboard", "-in"]), ("xsel", &["--clipboard", "--input"])],
-        (false, false) => &[("xclip", &["-selection", "clipboard", "-out"]), ("xsel", &["--clipboard", "--output"])],
+        (true, true) => &[
+            ("wl-copy", &[]),
+            ("xclip", &["-selection", "clipboard", "-in"]),
+            ("xsel", &["--clipboard", "--input"]),
+        ],
+        (true, false) => &[
+            ("wl-paste", &["--no-newline"]),
+            ("xclip", &["-selection", "clipboard", "-out"]),
+            ("xsel", &["--clipboard", "--output"]),
+        ],
+        (false, true) => &[
+            ("xclip", &["-selection", "clipboard", "-in"]),
+            ("xsel", &["--clipboard", "--input"]),
+        ],
+        (false, false) => &[
+            ("xclip", &["-selection", "clipboard", "-out"]),
+            ("xsel", &["--clipboard", "--output"]),
+        ],
     };
+
     for (program, args) in candidates {
         let mut child = match Command::new(program)
             .args(*args)
@@ -2093,19 +2109,32 @@ fn system_clipboard(write: Option<&str>) -> Option<String> {
             Ok(child) => child,
             Err(_) => continue,
         };
+
         if let Some(text) = write {
-            if let Some(mut stdin) = child.stdin.take() {
-                if stdin.write_all(text.as_bytes()).is_err() { continue; }
+            let Some(mut stdin) = child.stdin.take() else {
+                let _ = child.kill();
+                continue;
+            };
+            if stdin.write_all(text.as_bytes()).is_err() {
+                drop(stdin);
+                let _ = child.wait();
+                continue;
             }
-            let _ = child.wait();
-            return Some(String::new());
+            drop(stdin);
+            match child.wait() {
+                Ok(status) if status.success() => return Some(String::new()),
+                _ => continue,
+            }
         }
-        if let Ok(output) = child.wait_with_output() {
-            if output.status.success() {
+
+        match child.wait_with_output() {
+            Ok(output) if output.status.success() => {
                 return Some(String::from_utf8_lossy(&output.stdout).into_owned());
             }
+            _ => continue,
         }
     }
+
     None
 }
 
