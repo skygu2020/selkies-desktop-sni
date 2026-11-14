@@ -188,3 +188,4 @@ Extract here = Extract here
 Extract to... = Extract to...
 Select folder = Select folder
 Choose an extraction folder = Choose an extraction folder
+Open with = Mở bằng
