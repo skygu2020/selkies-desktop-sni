@@ -201,6 +201,10 @@ pub enum MenuAction {
     Open,
     /// Open the selection with a desktop entry.
     OpenWith(String),
+    /// Extract an archive into the current folder.
+    ExtractHere(PathBuf),
+    /// Choose a folder in which to extract an archive.
+    ExtractTo(PathBuf),
     /// Open a new window on the folder.
     OpenInNewWindow,
     /// Cut the selection.
