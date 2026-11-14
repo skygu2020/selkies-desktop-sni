@@ -118,6 +118,8 @@ pub enum PickTarget {
     Wallpaper { key: &'static str, monitor: Option<u32> },
     /// The start button's icon.
     StartIcon,
+    /// A destination folder for extracting an archive; reports to the source window.
+    Extract { window: u32, archive: PathBuf },
 }
 
 /// The settings new windows start with.
@@ -888,6 +890,12 @@ impl Manager {
                 ops::Job::Copy { id, sources, dest }
             }
         });
+        self.operations.insert(id, window);
+    }
+
+    /// Queues extracting an archive into a folder for a window.
+    pub fn extract(&mut self, window: u32, archive: PathBuf, dest: PathBuf) {
+        let id = self.worker.submit(|id| ops::Job::Extract { id, archive, dest });
         self.operations.insert(id, window);
     }
 
