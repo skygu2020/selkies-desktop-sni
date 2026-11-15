@@ -3054,7 +3054,9 @@ fn draw_list(
 /// Draws the message of an empty listing.
 fn draw_empty(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, content: Rect) {
     let w = &d.files.windows[index];
-    let message = if !w.filter.is_empty() {
+    let message = if w.loading {
+        tr("Loading…")
+    } else if !w.filter.is_empty() {
         tr("No matches")
     } else if w.picker.is_some() {
         tr("No images in this folder")
@@ -3090,6 +3092,8 @@ fn draw_status(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, layout: &
                     ("total", &progress.total.to_string()),
                 ],
             )
+        } else if w.loading {
+            tr("Loading…").to_string()
         } else if let Some((message, _)) = &w.status {
             message.clone()
         } else {
