@@ -341,6 +341,10 @@ pub struct FilesWindow {
     pub pix: Option<Pixmap>,
     /// Whether the window needs drawing.
     pub dirty: bool,
+    /// Generation of the most recently requested directory scan.
+    scan_generation: u64,
+    /// Whether the current directory listing is being read in the background.
+    pub loading: bool,
     /// A press waiting to become a click or a drag.
     pub press: Option<Press>,
     /// The rename in progress.
@@ -558,6 +562,8 @@ impl Manager {
             geometry: Geometry::default(),
             pix: None,
             dirty: true,
+            scan_generation: 0,
+            loading: true,
             press: None,
             rename: None,
             menu: None,
@@ -592,31 +598,27 @@ impl Manager {
         }
     }
 
-    /// Reads a folder into a window, replacing what it showed.  A folder that
-    /// cannot be read leaves the window where it was with a message.
+    /// Starts reading a folder on the background worker, replacing the listing
+    /// when the matching generation completes.
     fn load_dir(&mut self, window: &mut FilesWindow, dir: &Path) {
         let dir = dir.to_path_buf();
-        match read_dir(&dir, &self.mime) {
-            Ok(items) => {
-                self.unwatch(window.watch);
-                window.watch = self.watch(&dir);
-                window.dir = dir;
-                window.all = items;
-                window.selection.clear();
-                window.cursor = None;
-                window.scroll = 0.0;
-                window.filter.clear();
-                window.rename = None;
-                window.menu = None;
-                window.press = None;
-                window.rescan_at = None;
-                window.refilter();
-            }
-            Err(error) => {
-                window.status = Some((format!("{}: {error}", display_name(&dir)), Instant::now()));
-                window.dirty = true;
-            }
-        }
+        self.unwatch(window.watch);
+        window.watch = self.watch(&dir);
+        window.dir = dir.clone();
+        window.all.clear();
+        window.items.clear();
+        window.selection.clear();
+        window.cursor = None;
+        window.scroll = 0.0;
+        window.filter.clear();
+        window.rename = None;
+        window.menu = None;
+        window.press = None;
+        window.rescan_at = None;
+        window.scan_generation = window.scan_generation.wrapping_add(1);
+        window.loading = true;
+        window.dirty = true;
+        self.worker.request_directory_scan(window.id, window.scan_generation, dir, self.mime.clone());
     }
 
     /// Shows a folder in a window and records it in the history.
@@ -668,16 +670,12 @@ impl Manager {
             return;
         };
         window.rescan_at = None;
-        let dir = window.dir.clone();
-        if let Ok(items) = read_dir(&dir, &self.mime) {
-            window.all = items;
-            window.refilter();
-        } else if let Some(index) = self.windows.iter().position(|w| w.id == id) {
-            let mut window = self.windows.remove(index);
-            let home = config::home();
-            self.load_dir(&mut window, &home);
-            self.windows.insert(index, window);
-        }
+        window.scan_generation = window.scan_generation.wrapping_add(1);
+        window.loading = true;
+        window.dirty = true;
+        let path = window.dir.clone();
+        let generation = window.scan_generation;
+        self.worker.request_directory_scan(id, generation, path, self.mime.clone());
     }
 
     /// Adds an inotify watch on a folder.
@@ -790,6 +788,24 @@ impl Manager {
                     self.thumbs.insert(key, image.map(Rc::new));
                     for window in &mut self.windows {
                         window.dirty = true;
+                    }
+                }
+                Message::DirectoryRead { window_id, generation, path, result } => {
+                    if let Some(window) = self.window_mut(window_id)
+                        && window.scan_generation == generation
+                        && window.dir == path
+                    {
+                        window.loading = false;
+                        match result {
+                            Ok(items) => {
+                                window.all = items;
+                                window.refilter();
+                            }
+                            Err(error) => {
+                                window.status = Some((format!("{}: {error}", display_name(&path)), Instant::now()));
+                                window.dirty = true;
+                            }
+                        }
                     }
                 }
                 Message::DirectorySize { path, size } => {
