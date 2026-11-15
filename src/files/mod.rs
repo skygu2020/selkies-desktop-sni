@@ -1023,22 +1023,21 @@ pub fn sort_items(items: &mut [Item], key: SortKey, ascending: bool) {
 /// * `b` - The other name.
 pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     use std::cmp::Ordering;
-    let a_chars: Vec<char> = a.chars().collect();
-    let b_chars: Vec<char> = b.chars().collect();
     let (mut i, mut j) = (0usize, 0usize);
-    while i < a_chars.len() && j < b_chars.len() {
-        let (ca, cb) = (a_chars[i], b_chars[j]);
+    while i < a.len() && j < b.len() {
+        let ca = a[i..].chars().next().unwrap();
+        let cb = b[j..].chars().next().unwrap();
         if ca.is_ascii_digit() && cb.is_ascii_digit() {
             let start_a = i;
-            while i < a_chars.len() && a_chars[i].is_ascii_digit() {
+            while i < a.len() && a.as_bytes()[i].is_ascii_digit() {
                 i += 1;
             }
             let start_b = j;
-            while j < b_chars.len() && b_chars[j].is_ascii_digit() {
+            while j < b.len() && b.as_bytes()[j].is_ascii_digit() {
                 j += 1;
             }
-            let num_a: String = a_chars[start_a..i].iter().collect();
-            let num_b: String = b_chars[start_b..j].iter().collect();
+            let num_a = &a[start_a..i];
+            let num_b = &b[start_b..j];
             let trimmed_a = num_a.trim_start_matches('0');
             let trimmed_b = num_b.trim_start_matches('0');
             let by_value = trimmed_a
@@ -1056,11 +1055,11 @@ pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
         if la != lb {
             return la.cmp(&lb);
         }
-        i += 1;
-        j += 1;
+        i += ca.len_utf8();
+        j += cb.len_utf8();
     }
-    (a_chars.len() - i)
-        .cmp(&(b_chars.len() - j))
+    a[i..].chars().count()
+        .cmp(&b[j..].chars().count())
         .then_with(|| a.cmp(b))
 }
 
