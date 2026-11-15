@@ -23,7 +23,7 @@ struct Glob {
 }
 
 /// The loaded database.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct MimeDb {
     /// Literal `*.ext` globs by lowercase extension, the heaviest first.
     extensions: HashMap<String, Vec<(u32, String)>>,
