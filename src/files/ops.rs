@@ -10,6 +10,8 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 
 use tiny_skia::Pixmap;
 
+use super::{Item, MimeDb, read_dir};
+
 /// Largest image file decoded for a thumbnail, in bytes.
 const THUMBNAIL_MAX_BYTES: u64 = 64 << 20;
 
@@ -33,6 +35,8 @@ pub enum Job {
     Thumbnail { key: ThumbKey },
     /// Calculate the total size of a directory without blocking the UI.
     DirectorySize { path: PathBuf },
+    /// Read a directory listing without blocking the UI.
+    ReadDirectory { window_id: u32, generation: u64, path: PathBuf, mime: MimeDb },
     /// Extract an archive into a directory.
     Extract { id: u64, archive: PathBuf, dest: PathBuf },
 }
@@ -63,6 +67,8 @@ pub enum Message {
     Thumb { key: ThumbKey, image: Option<Pixmap> },
     /// The total size of a directory, or None if it could not be read.
     DirectorySize { path: PathBuf, size: Option<u64> },
+    /// A completed directory listing, tagged to reject stale navigation results.
+    DirectoryRead { window_id: u32, generation: u64, path: PathBuf, result: Result<Vec<Item>, String> },
 }
 
 /// The channel to the workers and the pipe they wake the main loop with.
@@ -70,6 +76,7 @@ pub struct Worker {
     ops: Sender<Job>,
     thumbs: Sender<Job>,
     sizes: Sender<Job>,
+    scans: Sender<Job>,
     results: Receiver<Message>,
     wake_read: OwnedFd,
     pending: HashSet<ThumbKey>,
@@ -97,6 +104,7 @@ impl Worker {
         let (ops, ops_rx) = channel::<Job>();
         let (thumbs, thumbs_rx) = channel::<Job>();
         let (sizes, sizes_rx) = channel::<Job>();
+        let (scans, scans_rx) = channel::<Job>();
         for rx in [ops_rx, thumbs_rx, sizes_rx] {
             let tx = result_tx.clone();
             let wake = wake_write.clone();
@@ -110,6 +118,7 @@ impl Worker {
             ops,
             thumbs,
             sizes,
+            scans,
             results,
             wake_read,
             pending: HashSet::new(),
@@ -145,6 +154,12 @@ impl Worker {
         if self.pending.insert(key.clone()) {
             let _ = self.thumbs.send(Job::Thumbnail { key });
         }
+    }
+
+    /// Queues a directory scan for a window. Results carry a generation so
+    /// navigation can discard scans that finish after a newer request.
+    pub fn request_directory_scan(&self, window_id: u32, generation: u64, path: PathBuf, mime: MimeDb) {
+        let _ = self.scans.send(Job::ReadDirectory { window_id, generation, path, mime });
     }
 
     /// Queues a directory-size calculation unless the same path is pending.
@@ -201,6 +216,10 @@ fn run(job: Job, tx: &Sender<Message>, wake: Option<&OwnedFd>) {
         Job::DirectorySize { path } => {
             let size = directory_size(&path);
             send(Message::DirectorySize { path, size });
+        }
+        Job::ReadDirectory { window_id, generation, path, mime } => {
+            let result = read_dir(&path, &mime).map_err(|error| error.to_string());
+            send(Message::DirectoryRead { window_id, generation, path, result });
         }
         Job::Extract { id, archive, dest } => {
             let errors = extract_archive(&archive, &dest);
