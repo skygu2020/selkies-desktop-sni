@@ -114,6 +114,13 @@ impl Worker {
                 }
             });
         }
+        let tx = result_tx.clone();
+        let wake = wake_write.clone();
+        std::thread::spawn(move || {
+            while let Ok(job) = scans_rx.recv() {
+                run(job, &tx, wake.as_deref());
+            }
+        });
         Worker {
             ops,
             thumbs,
