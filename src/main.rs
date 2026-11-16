@@ -205,6 +205,7 @@ fn run() -> i32 {
                         audio.toggle_mute();
                     }
                 }
+                Request::Screenshot => launch_screenshot(),
                 Request::TrayMenuOpen { index, x, y } => {
                     if let Some(sni) = sni.as_mut() {
                         let nodes = sni.menu(index);
