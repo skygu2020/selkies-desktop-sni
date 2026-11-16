@@ -1320,7 +1320,7 @@ impl Backend for WaylandBackend {
                 self.state
                     .start_drag(&qh, *window, uris.clone(), icon.as_deref(), *scale);
             }
-            Request::SetVolume(_) | Request::ToggleMute
+            Request::SetVolume(_) | Request::ToggleMute | Request::Screenshot
             | Request::TrayClick { .. } | Request::TrayScroll { .. }
             | Request::TrayMenuOpen { .. } | Request::TrayMenuClick { .. } => {}
         }

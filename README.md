@@ -95,7 +95,7 @@ Selkies includes a native Wayland region screenshot tool (requires the composito
 selkies-desktop --screenshot
 ```
 
-Bind your compositor's Print Screen key to that command to launch the selector. Drag to select;
+You can launch it from the camera button on the right side of the Selkies panel, or bind your compositor's Print Screen key to the command above. Drag to select;
 use the arrow keys to adjust the selection, Shift+arrows for 10-pixel steps, A for the full
 output, Enter to capture, and Escape or the right mouse button to cancel. PNG files are saved
 under `~/Pictures/Screenshots/` and copied to the Wayland clipboard.
