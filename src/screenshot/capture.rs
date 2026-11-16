@@ -316,7 +316,7 @@ fn wait_for_capture(
 
         let timeout_ms = remaining.as_millis().clamp(1, i32::MAX as u128) as i32;
         let mut poll_fd = libc::pollfd {
-            fd: conn.as_raw_fd(),
+            fd: conn.as_fd().as_raw_fd(),
             events: libc::POLLIN,
             revents: 0,
         };
