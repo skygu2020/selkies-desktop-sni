@@ -63,6 +63,16 @@ pub fn capture_full_output(
     state: &mut AppState,
     qh: &QueueHandle<AppState>,
 ) -> Result<(Vec<u8>, u32, u32, u32, wl_shm::Format)> {
+    capture_with_timeout_retries("freeze-frame", event_queue, state, |queue, state| {
+        capture_full_output_once(queue, state, qh)
+    })
+}
+
+fn capture_full_output_once(
+    event_queue: &mut wayland_client::EventQueue<AppState>,
+    state: &mut AppState,
+    qh: &QueueHandle<AppState>,
+) -> Result<(Vec<u8>, u32, u32, u32, wl_shm::Format)> {
     let manager = state
         .screencopy_manager
         .as_ref()
@@ -160,6 +170,20 @@ pub fn capture_full_output(
 /// Returns the raw pixel buffer (format as reported by the compositor,
 /// typically XRGB8888 or ARGB8888) along with width, height, stride, and format.
 pub fn capture_region(
+    event_queue: &mut wayland_client::EventQueue<AppState>,
+    state: &mut AppState,
+    qh: &QueueHandle<AppState>,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) -> Result<(Vec<u8>, u32, u32, u32, wl_shm::Format)> {
+    capture_with_timeout_retries("region capture", event_queue, state, |queue, state| {
+        capture_region_once(queue, state, qh, x, y, width, height)
+    })
+}
+
+fn capture_region_once(
     event_queue: &mut wayland_client::EventQueue<AppState>,
     state: &mut AppState,
     qh: &QueueHandle<AppState>,
@@ -281,6 +305,46 @@ pub fn capture_region(
     frame.destroy();
 
     Ok((pixels, buf_width, buf_height, buf_stride, fmt))
+}
+
+
+/// Retry only compositor timeouts. A fresh frame object is created for every
+/// attempt, and the previous attempt is discarded before this function returns.
+/// The short pause gives the compositor another repaint opportunity.
+fn capture_with_timeout_retries<F>(
+    label: &str,
+    event_queue: &mut wayland_client::EventQueue<AppState>,
+    state: &mut AppState,
+    mut capture: F,
+) -> Result<(Vec<u8>, u32, u32, u32, wl_shm::Format)>
+where
+    F: FnMut(
+        &mut wayland_client::EventQueue<AppState>,
+        &mut AppState,
+    ) -> Result<(Vec<u8>, u32, u32, u32, wl_shm::Format)>,
+{
+    const MAX_ATTEMPTS: usize = 3;
+
+    for attempt in 1..=MAX_ATTEMPTS {
+        match capture(event_queue, state) {
+            Ok(result) => return Ok(result),
+            Err(error) => {
+                let is_timeout = format!("{error:#}").contains("timed out");
+                if !is_timeout || attempt == MAX_ATTEMPTS {
+                    return Err(error).with_context(|| {
+                        format!("{label} failed after {attempt} attempt(s)")
+                    });
+                }
+
+                eprintln!(
+                    "selkies-desktop: {label} timed out (attempt {attempt}/{MAX_ATTEMPTS}); retrying"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(16));
+            }
+        }
+    }
+
+    unreachable!("capture retry loop always returns")
 }
 
 // ── Dispatch for screencopy frame ─────────────────────────────
