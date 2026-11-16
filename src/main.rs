@@ -14,6 +14,7 @@ mod i18n;
 mod icons;
 mod ipc;
 mod render;
+mod screenshot;
 mod tray;
 mod tray_sni;
 mod ui;
@@ -33,6 +34,7 @@ Usage: selkies-desktop [COMMAND]
 Runs the Selkies desktop panel on the Wayland compositor or X display of the
 session.  With a command, talks to the running panel instead:
 
+  --screenshot     capture a region of the primary Wayland output
   --toggle-menu    open or close the start menu
   --files [DIR]    open the file manager, on a folder when given
   --show-desktop   minimize every window, or restore them
@@ -54,6 +56,13 @@ fn main() {
         match arg.as_str() {
             "--help" | "-h" | "help" => {
                 print!("{USAGE}");
+                return;
+            }
+            "--screenshot" => {
+                if let Err(error) = screenshot::run() {
+                    eprintln!("selkies-desktop: screenshot failed: {error:#}");
+                    std::process::exit(1);
+                }
                 return;
             }
             "--version" | "-V" | "version" => {

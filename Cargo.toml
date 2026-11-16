@@ -36,6 +36,15 @@ libc = "0.2"
 rustsni = "0.2.2"
 memmap2 = "0.9"
 
+# Native Wayland screenshot mode (VoidSnap selection and screencopy).
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+directories = "6"
+nix = { version = "0.31", features = ["mman", "fs"] }
+serde = { version = "1", features = ["derive"] }
+toml = "1"
+wl-clipboard-rs = "0.9"
+
 [profile.release]
 opt-level = 3
 lto = true
