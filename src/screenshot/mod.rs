@@ -15,7 +15,7 @@ pub fn run() -> Result<()> {
     let cfg = config::load().context("Failed to load VoidSnap configuration")?;
 
     eprintln!(
-        "voidsnap: saving to {}, clipboard={}, border=#{}, freeze={}",
+        "selkies-desktop: saving to {}, clipboard={}, border=#{}, freeze={}",
         cfg.save_directory.display(),
         cfg.copy_to_clipboard,
         hex_color_str(&cfg.border_color),
@@ -29,7 +29,7 @@ pub fn run() -> Result<()> {
     let qh = event_queue.handle();
 
     eprintln!(
-        "voidsnap: connected — {} output(s) detected",
+        "selkies-desktop: connected — {} output(s) detected",
         state.outputs.len()
     );
 
@@ -41,10 +41,10 @@ pub fn run() -> Result<()> {
                 state.frozen_buffer = Some(argb_buf);
                 state.frozen_width = w;
                 state.frozen_height = h;
-                eprintln!("voidsnap: freeze-frame captured ({w}×{h})");
+                eprintln!("selkies-desktop: freeze-frame captured ({w}×{h})");
             }
             Err(e) => {
-                eprintln!("voidsnap: freeze-frame failed, falling back to transparent: {e}");
+                eprintln!("selkies-desktop: freeze-frame failed, falling back to transparent: {e}");
                 // Continue without freeze-frame — non-fatal.
             }
         }
@@ -55,7 +55,7 @@ pub fn run() -> Result<()> {
         .context("Failed to create selection overlay")?;
 
     eprintln!(
-        "voidsnap: overlay ready ({}×{}) — click and drag to select a region",
+        "selkies-desktop: overlay ready ({}×{}) — click and drag to select a region",
         state.overlay.width, state.overlay.height
     );
 
@@ -76,12 +76,12 @@ pub fn run() -> Result<()> {
     event_queue.roundtrip(&mut state)?;
 
     if !state.overlay.selection.done {
-        eprintln!("voidsnap: selection cancelled");
+        eprintln!("selkies-desktop: selection cancelled");
         return Ok(());
     }
 
     let (sx, sy, sw, sh) = state.overlay.selection.rect();
-    eprintln!("voidsnap: capturing region ({sx}, {sy}) {sw}×{sh}");
+    eprintln!("selkies-desktop: capturing region ({sx}, {sy}) {sw}×{sh}");
 
     // ── Phase 6: Obtain final pixels ─────────────────────────
     // If we have a frozen buffer, crop directly — no second screencopy needed.
@@ -136,18 +136,18 @@ pub fn run() -> Result<()> {
 
     // ── Phase 8: Save to disk ────────────────────────────────
     let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S");
-    let filename = format!("{}_voidsnap.png", timestamp);
+    let filename = format!("{}_screenshot.png", timestamp);
     let filepath = cfg.save_directory.join(&filename);
 
     std::fs::write(&filepath, &png_bytes)
         .with_context(|| format!("Failed to write screenshot to {}", filepath.display()))?;
 
-    eprintln!("voidsnap: saved → {}", filepath.display());
+    eprintln!("selkies-desktop: saved → {}", filepath.display());
 
     // ── Phase 9: Copy to clipboard (if enabled) ──────────────
     if cfg.copy_to_clipboard {
         clipboard::copy_png_to_clipboard(png_bytes).context("Clipboard copy failed")?;
-        eprintln!("voidsnap: copied to clipboard");
+        eprintln!("selkies-desktop: copied to clipboard");
     }
 
     Ok(())

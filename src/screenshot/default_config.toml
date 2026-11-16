@@ -1,11 +1,11 @@
 # ╔══════════════════════════════════════════════════════════════╗
-# ║                    VoidSnap Configuration                    ║
+# ║                    Selkies Desktop Configuration                    ║
 # ╚══════════════════════════════════════════════════════════════╝
 #
 # This file is auto-generated on first run.
-# Location: ~/.config/voidsnap/config.toml
+# Location: ~/.config/selkies-desktop/config.toml
 #
-# Edit any value below and restart VoidSnap to apply changes.
+# Edit any value below and restart Selkies Desktop to apply changes.
 
 # ── Save Settings ──────────────────────────────────────────────
 #
@@ -43,7 +43,7 @@ overlay_idle_opacity = 0.40
 
 # ── Behaviour ──────────────────────────────────────────────────
 #
-# When true, VoidSnap captures a full-screen freeze-frame before
+# When true, Selkies Desktop captures a full-screen freeze-frame before
 # showing the overlay. The user selects from a static image, so
 # animations and cursor movement don't affect the final capture.
 freeze_frame = true

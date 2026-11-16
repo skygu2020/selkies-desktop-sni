@@ -98,15 +98,15 @@ pub struct ResolvedConfig {
 
 /// Load (or bootstrap) the configuration from disk.
 ///
-/// 1. Resolve `~/.config/voidsnap/config.toml` via XDG.
+/// 1. Resolve `~/.config/selkies-desktop/config.toml` via XDG.
 /// 2. If the directory or file is missing, create it with the embedded default.
 /// 3. Parse TOML into [`Config`], then resolve paths and colors into
 ///    [`ResolvedConfig`].
 pub fn load() -> Result<ResolvedConfig> {
     let base_dirs = BaseDirs::new().context("Failed to determine XDG base directories")?;
 
-    // ~/.config/voidsnap/
-    let config_dir = base_dirs.config_dir().join("voidsnap");
+    // ~/.config/selkies-desktop/
+    let config_dir = base_dirs.config_dir().join("selkies-desktop");
     let config_path = config_dir.join("config.toml");
 
     // Bootstrap: create directory tree + default config if missing.
@@ -126,7 +126,7 @@ pub fn load() -> Result<ResolvedConfig> {
         })?;
 
         eprintln!(
-            "voidsnap: created default config at {}",
+            "selkies-desktop: created default config at {}",
             config_path.display()
         );
     }

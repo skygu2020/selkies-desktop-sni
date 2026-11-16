@@ -86,6 +86,23 @@ Hardened images that make a terminal unexecutable (`DISABLE_TERMINALS`) see
 its menu entries disappear as well, since an entry whose program may not be
 run is left out.
 
+## Screenshots
+
+Selkies includes a native Wayland region screenshot tool (requires the compositor to support
+`wlr-layer-shell-unstable-v1` and `wlr-screencopy-unstable-v1`). Run it directly:
+
+```sh
+selkies-desktop --screenshot
+```
+
+Bind your compositor's Print Screen key to that command to launch the selector. Drag to select;
+use the arrow keys to adjust the selection, Shift+arrows for 10-pixel steps, A for the full
+output, Enter to capture, and Escape or the right mouse button to cancel. PNG files are saved
+under `~/Pictures/Screenshots/` and copied to the Wayland clipboard.
+
+The first run creates `~/.config/selkies-desktop/config.toml`; it controls the save directory,
+clipboard copying, selection border, overlay tint and freeze-frame behaviour.
+
 ## Configuration
 
 Settings live in `~/.config/selkies-desktop/config` as `key = value` lines,
