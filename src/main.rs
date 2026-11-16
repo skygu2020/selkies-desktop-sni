@@ -111,6 +111,20 @@ fn main() {
     std::process::exit(run());
 }
 
+/// Starts the standalone screenshot selector without blocking the panel.
+fn launch_screenshot() {
+    let executable = match std::env::current_exe() {
+        Ok(executable) => executable,
+        Err(error) => {
+            eprintln!("selkies-desktop: could not locate executable for screenshot: {error}");
+            return;
+        }
+    };
+    if let Err(error) = std::process::Command::new(executable).arg("--screenshot").spawn() {
+        eprintln!("selkies-desktop: could not launch screenshot: {error}");
+    }
+}
+
 /// Runs the desktop until the display goes away or a quit command arrives.
 ///
 /// # Returns
@@ -191,13 +205,6 @@ fn run() -> i32 {
                         audio.toggle_mute();
                     }
                 }
-                Request::Screenshot => {
-                    if let Ok(executable) = std::env::current_exe() {
-                        if let Err(error) = std::process::Command::new(executable).arg("--screenshot").spawn() {
-                            eprintln!("selkies-desktop: could not launch screenshot: {error}");
-                        }
-                    }
-                }
                 Request::TrayMenuOpen { index, x, y } => {
                     if let Some(sni) = sni.as_mut() {
                         let nodes = sni.menu(index);
@@ -228,13 +235,7 @@ fn run() -> i32 {
                         sni.scroll(index, delta, false);
                     }
                 }
-                Request::Screenshot => {
-                    if let Ok(executable) = std::env::current_exe() {
-                        if let Err(error) = std::process::Command::new(executable).arg("--screenshot").spawn() {
-                            eprintln!("selkies-desktop: could not launch screenshot: {error}");
-                        }
-                    }
-                }
+                Request::Screenshot => launch_screenshot(),
                 other => backend.perform(&other),
             }
         }

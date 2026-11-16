@@ -12,7 +12,7 @@ use wayland_client::protocol::wl_shm;
 
 pub fn run() -> Result<()> {
     // ── Phase 1: Load configuration ──────────────────────────
-    let cfg = config::load().context("Failed to load VoidSnap configuration")?;
+    let cfg = config::load().context("Failed to load Selkies screenshot configuration")?;
 
     eprintln!(
         "selkies-desktop: saving to {}, clipboard={}, border=#{}, freeze={}",
@@ -145,12 +145,43 @@ pub fn run() -> Result<()> {
     eprintln!("selkies-desktop: saved → {}", filepath.display());
 
     // ── Phase 9: Copy to clipboard (if enabled) ──────────────
-    if cfg.copy_to_clipboard {
-        clipboard::copy_png_to_clipboard(png_bytes).context("Clipboard copy failed")?;
-        eprintln!("selkies-desktop: copied to clipboard");
+    let clipboard_result = if cfg.copy_to_clipboard {
+        match clipboard::copy_png_to_clipboard(png_bytes) {
+            Ok(()) => {
+                eprintln!("selkies-desktop: copied to clipboard");
+                None
+            }
+            Err(error) => {
+                eprintln!("selkies-desktop: clipboard copy failed: {error:#}");
+                Some(error)
+            }
+        }
+    } else {
+        None
+    };
+
+    notify_screenshot_saved(&filepath);
+
+    if let Some(error) = clipboard_result {
+        return Err(error).context("Clipboard copy failed");
     }
 
     Ok(())
+}
+
+/// Ask the desktop notification daemon to show the saved screenshot.
+/// `notify-send` is optional, so minimal sessions without a notification
+/// utility continue to work normally.
+fn notify_screenshot_saved(path: &std::path::Path) {
+    let body = format!("Saved to {}", path.display());
+    let _ = std::process::Command::new("notify-send")
+        .arg("--app-name=Selkies Desktop")
+        .arg("--expire-time=4000")
+        .arg("--icon")
+        .arg(path)
+        .arg("Screenshot saved")
+        .arg(body)
+        .spawn();
 }
 
 // ── Helpers ───────────────────────────────────────────────────
