@@ -326,9 +326,19 @@ where
     const MAX_ATTEMPTS: usize = 3;
 
     for attempt in 1..=MAX_ATTEMPTS {
+        let started = std::time::Instant::now();
         match capture(event_queue, state) {
-            Ok(result) => return Ok(result),
+            Ok(result) => {
+                if attempt > 1 {
+                    eprintln!(
+                        "selkies-desktop: {label} succeeded on attempt {attempt}/{MAX_ATTEMPTS} after {:.0}ms",
+                        started.elapsed().as_secs_f64() * 1000.0
+                    );
+                }
+                return Ok(result);
+            }
             Err(error) => {
+                let elapsed = started.elapsed();
                 let is_timeout = format!("{error:#}").contains("timed out");
                 if !is_timeout || attempt == MAX_ATTEMPTS {
                     return Err(error).with_context(|| {
@@ -336,10 +346,16 @@ where
                     });
                 }
 
+                // Give the compositor time to schedule another output frame
+                // before issuing a fresh screencopy request. Increase the
+                // pause after each timeout rather than hammering it at 16ms.
+                let retry_delay = std::time::Duration::from_millis(50 * attempt as u64);
                 eprintln!(
-                    "selkies-desktop: {label} timed out (attempt {attempt}/{MAX_ATTEMPTS}); retrying"
+                    "selkies-desktop: {label} timed out after {:.0}ms (attempt {attempt}/{MAX_ATTEMPTS}); retrying in {}ms",
+                    elapsed.as_secs_f64() * 1000.0,
+                    retry_delay.as_millis()
                 );
-                std::thread::sleep(std::time::Duration::from_millis(16));
+                std::thread::sleep(retry_delay);
             }
         }
     }
