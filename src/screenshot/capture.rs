@@ -5,6 +5,8 @@ use nix::fcntl::OFlag;
 use nix::sys::stat::Mode;
 use nix::unistd::ftruncate;
 use wayland_client::protocol::wl_shm;
+use wayland_client::protocol::wl_buffer::WlBuffer;
+use wayland_client::protocol::wl_shm_pool::WlShmPool;
 use wayland_client::{Connection, Dispatch, QueueHandle};
 use wayland_protocols_wlr::screencopy::v1::client::zwlr_screencopy_frame_v1::{
     self, ZwlrScreencopyFrameV1,
@@ -28,6 +30,27 @@ pub struct CaptureFrame {
     pub ready: bool,
     /// Whether the frame capture failed.
     pub failed: bool,
+}
+
+/// Tear down an incomplete screencopy request before another capture is
+/// attempted. A timed-out frame can otherwise remain alive on the connection
+/// and deliver late events into the next request's shared CaptureFrame state.
+fn discard_incomplete_capture(
+    event_queue: &mut wayland_client::EventQueue<AppState>,
+    state: &mut AppState,
+    frame: &ZwlrScreencopyFrameV1,
+    buffer: &WlBuffer,
+    pool: &WlShmPool,
+) {
+    buffer.destroy();
+    pool.destroy();
+    frame.destroy();
+
+    // Drain events queued before the destructor requests take effect. Reset
+    // only afterwards so late events from this frame cannot mark a new frame
+    // as ready or failed.
+    let _ = event_queue.roundtrip(state);
+    state.capture_frame = CaptureFrame::default();
 }
 
 // ── Capture logic ─────────────────────────────────────────────
@@ -109,12 +132,14 @@ pub fn capture_full_output(
             .context("Roundtrip failed during freeze capture")?;
 
         if state.capture_frame.failed {
+            discard_incomplete_capture(event_queue, state, &frame, &buffer, &pool);
             anyhow::bail!("Freeze-frame capture failed");
         }
         if state.capture_frame.ready {
             break;
         }
         if attempt == MAX_ROUNDTRIPS - 1 {
+            discard_incomplete_capture(event_queue, state, &frame, &buffer, &pool);
             anyhow::bail!("Freeze-frame timed out");
         }
     }
@@ -227,12 +252,14 @@ pub fn capture_region(
             .context("Roundtrip failed during screencopy")?;
 
         if state.capture_frame.failed {
+            discard_incomplete_capture(event_queue, state, &frame, &buffer, &pool);
             anyhow::bail!("Screencopy capture failed — compositor reported an error");
         }
         if state.capture_frame.ready {
             break;
         }
         if attempt == MAX_ROUNDTRIPS - 1 {
+            discard_incomplete_capture(event_queue, state, &frame, &buffer, &pool);
             anyhow::bail!(
                 "Screencopy timed out after {MAX_ROUNDTRIPS} roundtrips — \
                  compositor never sent Ready or Failed"
