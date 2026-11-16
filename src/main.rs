@@ -236,7 +236,6 @@ fn run() -> i32 {
                         sni.scroll(index, delta, false);
                     }
                 }
-                Request::Screenshot => launch_screenshot(),
                 other => backend.perform(&other),
             }
         }
