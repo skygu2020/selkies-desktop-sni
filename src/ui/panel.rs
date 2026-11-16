@@ -632,13 +632,36 @@ pub fn draw(d: &mut Desktop, canvas: &mut Canvas<'_>) {
         if d.hover == Hover::Screenshot {
             canvas.fill_rounded(rect, 4.0, ui::hover_bg());
         }
-        let camera = Rect::new(rect.x + 7, rect.y + 9, rect.w - 14, rect.h - 18);
-        canvas.stroke_rounded(camera, 3.0, 1.3, ui::text());
-        canvas.stroke_rounded(
-            Rect::new(camera.x + camera.w / 2 - 3, camera.y + camera.h / 2 - 3, 6, 6),
-            3.0, 1.2, ui::text(),
+        // Keep the camera glyph legible on both compact and tall panels.
+        // Its dimensions follow the available button height instead of
+        // relying on fixed vertical margins that can collapse on short bars.
+        let body_w = (rect.h * 5 / 6).clamp(12, 20).min(rect.w - 10);
+        let body_h = (rect.h * 2 / 3).clamp(9, 16).min(rect.h.max(1));
+        let camera = Rect::new(
+            rect.x + (rect.w - body_w) / 2,
+            rect.y + (rect.h - body_h) / 2 + 1,
+            body_w,
+            body_h,
         );
-        canvas.fill_rect(Rect::new(camera.x + 4, camera.y - 2, 7, 2), ui::text());
+        let line_width = if rect.h < 22 { 1.0 } else { 1.3 };
+        canvas.stroke_rounded(camera, 3.0, line_width, ui::text());
+        let lens = (body_h / 3).clamp(4, 6).min(body_w.saturating_sub(4));
+        canvas.stroke_rounded(
+            Rect::new(
+                camera.x + (camera.w - lens) / 2,
+                camera.y + (camera.h - lens) / 2,
+                lens,
+                lens,
+            ),
+            (lens / 2) as f32,
+            1.2,
+            ui::text(),
+        );
+        let tab_w = (body_w / 3).clamp(5, 7);
+        canvas.fill_rect(
+            Rect::new(camera.x + 3, camera.y - 2, tab_w, 2),
+            ui::text(),
+        );
     }
     if let Some(rect) = layout.show_desktop {
         canvas.fill_rect(
