@@ -1,4 +1,4 @@
-use std::os::fd::AsFd;
+use std::os::fd::{AsFd, AsRawFd};
 
 use anyhow::{Context, Result};
 use nix::fcntl::OFlag;
@@ -61,16 +61,18 @@ fn discard_incomplete_capture(
 pub fn capture_full_output(
     event_queue: &mut wayland_client::EventQueue<AppState>,
     state: &mut AppState,
+    conn: &Connection,
     qh: &QueueHandle<AppState>,
 ) -> Result<(Vec<u8>, u32, u32, u32, wl_shm::Format)> {
-    capture_with_timeout_retries("freeze-frame", event_queue, state, |queue, state| {
-        capture_full_output_once(queue, state, qh)
+    capture_with_timeout_retries("freeze-frame", event_queue, state, conn, |queue, state, conn| {
+        capture_full_output_once(queue, state, conn, qh)
     })
 }
 
 fn capture_full_output_once(
     event_queue: &mut wayland_client::EventQueue<AppState>,
     state: &mut AppState,
+    conn: &Connection,
     qh: &QueueHandle<AppState>,
 ) -> Result<(Vec<u8>, u32, u32, u32, wl_shm::Format)> {
     let manager = state
@@ -137,23 +139,9 @@ fn capture_full_output_once(
 
     frame.copy(&buffer);
 
-    const MAX_ROUNDTRIPS: usize = 100;
-    for attempt in 0..MAX_ROUNDTRIPS {
-        event_queue
-            .roundtrip(state)
-            .context("Roundtrip failed during freeze capture")?;
-
-        if state.capture_frame.failed {
-            discard_incomplete_capture(event_queue, state, &frame, &buffer, &pool);
-            anyhow::bail!("Freeze-frame capture failed");
-        }
-        if state.capture_frame.ready {
-            break;
-        }
-        if attempt == MAX_ROUNDTRIPS - 1 {
-            discard_incomplete_capture(event_queue, state, &frame, &buffer, &pool);
-            anyhow::bail!("Freeze-frame timed out");
-        }
+    if let Err(error) = wait_for_capture(conn, event_queue, state) {
+        discard_incomplete_capture(event_queue, state, &frame, &buffer, &pool);
+        return Err(error).context("Freeze-frame capture did not complete");
     }
 
     let pixels = mmap[..buf_size].to_vec();
@@ -172,20 +160,22 @@ fn capture_full_output_once(
 pub fn capture_region(
     event_queue: &mut wayland_client::EventQueue<AppState>,
     state: &mut AppState,
+    conn: &Connection,
     qh: &QueueHandle<AppState>,
     x: i32,
     y: i32,
     width: i32,
     height: i32,
 ) -> Result<(Vec<u8>, u32, u32, u32, wl_shm::Format)> {
-    capture_with_timeout_retries("region capture", event_queue, state, |queue, state| {
-        capture_region_once(queue, state, qh, x, y, width, height)
+    capture_with_timeout_retries("region capture", event_queue, state, conn, |queue, state, conn| {
+        capture_region_once(queue, state, conn, qh, x, y, width, height)
     })
 }
 
 fn capture_region_once(
     event_queue: &mut wayland_client::EventQueue<AppState>,
     state: &mut AppState,
+    conn: &Connection,
     qh: &QueueHandle<AppState>,
     x: i32,
     y: i32,
@@ -273,27 +263,9 @@ fn capture_region_once(
     // Tell the compositor to copy pixels into our buffer.
     frame.copy(&buffer);
 
-    // Roundtrip until the frame is ready or failed (with timeout guard).
-    const MAX_ROUNDTRIPS: usize = 100;
-    for attempt in 0..MAX_ROUNDTRIPS {
-        event_queue
-            .roundtrip(state)
-            .context("Roundtrip failed during screencopy")?;
-
-        if state.capture_frame.failed {
-            discard_incomplete_capture(event_queue, state, &frame, &buffer, &pool);
-            anyhow::bail!("Screencopy capture failed — compositor reported an error");
-        }
-        if state.capture_frame.ready {
-            break;
-        }
-        if attempt == MAX_ROUNDTRIPS - 1 {
-            discard_incomplete_capture(event_queue, state, &frame, &buffer, &pool);
-            anyhow::bail!(
-                "Screencopy timed out after {MAX_ROUNDTRIPS} roundtrips — \
-                 compositor never sent Ready or Failed"
-            );
-        }
+    if let Err(error) = wait_for_capture(conn, event_queue, state) {
+        discard_incomplete_capture(event_queue, state, &frame, &buffer, &pool);
+        return Err(error).context("Screencopy capture did not complete");
     }
 
     // Copy the pixels out.
@@ -308,26 +280,86 @@ fn capture_region_once(
 }
 
 
-/// Retry only compositor timeouts. A fresh frame object is created for every
-/// attempt, and the previous attempt is discarded before this function returns.
-/// The short pause gives the compositor another repaint opportunity.
+/// Wait for the compositor's Ready/Failed event using a real wall-clock
+/// deadline. Repeated roundtrips can finish in milliseconds without waiting
+/// for the compositor to schedule and complete a new output frame.
+fn wait_for_capture(
+    conn: &Connection,
+    event_queue: &mut wayland_client::EventQueue<AppState>,
+    state: &mut AppState,
+) -> Result<()> {
+    const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+    let deadline = std::time::Instant::now() + TIMEOUT;
+
+    loop {
+        event_queue
+            .dispatch_pending(state)
+            .context("Failed to dispatch pending screencopy events")?;
+
+        if state.capture_frame.failed {
+            anyhow::bail!("Compositor reported screencopy failure");
+        }
+        if state.capture_frame.ready {
+            return Ok(());
+        }
+
+        conn.flush().context("Failed to flush screencopy request")?;
+        let Some(guard) = conn.prepare_read() else {
+            continue;
+        };
+
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            drop(guard);
+            anyhow::bail!("Screencopy timed out after {}ms waiting for Ready or Failed", TIMEOUT.as_millis());
+        }
+
+        let timeout_ms = remaining.as_millis().clamp(1, i32::MAX as u128) as i32;
+        let mut poll_fd = libc::pollfd {
+            fd: conn.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: poll_fd points to one valid pollfd for the duration of this call.
+        let poll_result = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
+        if poll_result == 0 {
+            drop(guard);
+            anyhow::bail!("Screencopy timed out after {}ms waiting for Ready or Failed", TIMEOUT.as_millis());
+        }
+        if poll_result < 0 {
+            let error = std::io::Error::last_os_error();
+            drop(guard);
+            if error.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(error).context("Polling Wayland connection failed");
+        }
+
+        guard.read().context("Reading Wayland screencopy events failed")?;
+    }
+}
+
+/// Retry only compositor timeouts. Each attempt creates a fresh frame and
+/// waits up to the capture deadline before retrying.
 fn capture_with_timeout_retries<F>(
     label: &str,
     event_queue: &mut wayland_client::EventQueue<AppState>,
     state: &mut AppState,
+    conn: &Connection,
     mut capture: F,
 ) -> Result<(Vec<u8>, u32, u32, u32, wl_shm::Format)>
 where
     F: FnMut(
         &mut wayland_client::EventQueue<AppState>,
         &mut AppState,
+        &Connection,
     ) -> Result<(Vec<u8>, u32, u32, u32, wl_shm::Format)>,
 {
     const MAX_ATTEMPTS: usize = 3;
 
     for attempt in 1..=MAX_ATTEMPTS {
         let started = std::time::Instant::now();
-        match capture(event_queue, state) {
+        match capture(event_queue, state, conn) {
             Ok(result) => {
                 if attempt > 1 {
                     eprintln!(
@@ -346,9 +378,6 @@ where
                     });
                 }
 
-                // Give the compositor time to schedule another output frame
-                // before issuing a fresh screencopy request. Increase the
-                // pause after each timeout rather than hammering it at 16ms.
                 let retry_delay = std::time::Duration::from_millis(50 * attempt as u64);
                 eprintln!(
                     "selkies-desktop: {label} timed out after {:.0}ms (attempt {attempt}/{MAX_ATTEMPTS}); retrying in {}ms",

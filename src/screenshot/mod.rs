@@ -35,7 +35,7 @@ pub fn run() -> Result<()> {
 
     // ── Phase 2.5: Freeze-frame capture (before overlay) ─────
     if cfg.freeze_frame {
-        match capture::capture_full_output(&mut event_queue, &mut state, &qh) {
+        match capture::capture_full_output(&mut event_queue, &mut state, &_conn, &qh) {
             Ok((pixels, w, h, stride, fmt)) => {
                 let argb_buf = convert_to_argb8888(&pixels, w, h, stride, fmt)?;
                 state.frozen_buffer = Some(argb_buf);
@@ -114,7 +114,7 @@ pub fn run() -> Result<()> {
     } else {
         // No freeze-frame: capture from the live output.
         let (pixels, buf_w, buf_h, buf_stride, fmt) =
-            capture::capture_region(&mut event_queue, &mut state, &qh, sx, sy, sw, sh)
+            capture::capture_region(&mut event_queue, &mut state, &_conn, &qh, sx, sy, sw, sh)
                 .context("Screen capture failed")?;
         let rgba = convert_to_rgba(&pixels, buf_w, buf_h, buf_stride, fmt)?;
         (rgba, buf_w, buf_h)
