@@ -56,6 +56,8 @@ pub struct AppState {
 
     // ── Screencopy frame (Phase 6) ──
     pub capture_frame: CaptureFrame,
+    /// Token used to reject late events from superseded screencopy requests.
+    pub capture_generation: u64,
 
     // ── Config ──
     pub border_color: [u8; 4],
@@ -81,6 +83,7 @@ impl AppState {
             screencopy_manager: None,
             overlay: OverlayState::new(),
             capture_frame: CaptureFrame::default(),
+            capture_generation: 0,
             border_color: cfg.border_color,
             border_width: cfg.border_width,
             overlay_color: cfg.overlay_color,

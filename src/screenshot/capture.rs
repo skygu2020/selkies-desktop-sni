@@ -77,8 +77,10 @@ pub fn capture_full_output(
         .clone();
 
     state.capture_frame = CaptureFrame::default();
+    state.capture_generation = state.capture_generation.wrapping_add(1);
+    let generation = state.capture_generation;
 
-    let frame = manager.capture_output(0, &output, qh, ());
+    let frame = manager.capture_output(0, &output, qh, generation);
 
     event_queue
         .roundtrip(state)
@@ -179,8 +181,11 @@ pub fn capture_region(
         .wl_output
         .clone();
 
-    // Reset the capture frame state.
+    // Give this request a unique token so delayed events from an older frame
+    // cannot complete or fail the current capture.
     state.capture_frame = CaptureFrame::default();
+    state.capture_generation = state.capture_generation.wrapping_add(1);
+    let generation = state.capture_generation;
 
     // Request a frame for the selected region (overlay_cursor = false → don't include cursor).
     let frame = manager.capture_output_region(
@@ -191,7 +196,7 @@ pub fn capture_region(
         width,
         height,
         qh,
-        (), // user data — we use AppState.capture_frame instead
+        generation,
     );
 
     // Roundtrip to get the buffer event with format info.
@@ -280,15 +285,20 @@ pub fn capture_region(
 
 // ── Dispatch for screencopy frame ─────────────────────────────
 
-impl Dispatch<ZwlrScreencopyFrameV1, ()> for AppState {
+impl Dispatch<ZwlrScreencopyFrameV1, u64> for AppState {
     fn event(
         state: &mut Self,
         _proxy: &ZwlrScreencopyFrameV1,
         event: <ZwlrScreencopyFrameV1 as wayland_client::Proxy>::Event,
-        _data: &(),
+        data: &u64,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
     ) {
+        // Ignore delayed events from a previous request after a newer capture starts.
+        if *data != state.capture_generation {
+            return;
+        }
+
         match event {
             zwlr_screencopy_frame_v1::Event::Buffer {
                 format,
