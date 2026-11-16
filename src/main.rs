@@ -191,6 +191,13 @@ fn run() -> i32 {
                         audio.toggle_mute();
                     }
                 }
+                Request::Screenshot => {
+                    if let Ok(executable) = std::env::current_exe() {
+                        if let Err(error) = std::process::Command::new(executable).arg("--screenshot").spawn() {
+                            eprintln!("selkies-desktop: could not launch screenshot: {error}");
+                        }
+                    }
+                }
                 Request::TrayMenuOpen { index, x, y } => {
                     if let Some(sni) = sni.as_mut() {
                         let nodes = sni.menu(index);
@@ -219,6 +226,13 @@ fn run() -> i32 {
                 Request::TrayScroll { index, delta } => {
                     if let Some(sni) = sni.as_mut() {
                         sni.scroll(index, delta, false);
+                    }
+                }
+                Request::Screenshot => {
+                    if let Ok(executable) = std::env::current_exe() {
+                        if let Err(error) = std::process::Command::new(executable).arg("--screenshot").spawn() {
+                            eprintln!("selkies-desktop: could not launch screenshot: {error}");
+                        }
                     }
                 }
                 other => backend.perform(&other),

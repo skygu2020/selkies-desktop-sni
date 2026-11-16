@@ -172,6 +172,8 @@ pub enum Request {
     SetVolume(u8),
     /// Toggle the default sink's mute.
     ToggleMute,
+    /// Launch the standalone Wayland screenshot selector.
+    Screenshot,
     /// Forward a pointer action to a StatusNotifierItem.
     TrayClick { index: usize, button: Button, x: i32, y: i32 },
     /// Fetch and display the DBusMenu belonging to a tray item.

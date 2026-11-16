@@ -162,6 +162,8 @@ pub enum Hover {
     Clock,
     /// The show desktop button.
     ShowDesktop,
+    /// The screenshot button.
+    Screenshot,
     /// A StatusNotifierItem, by SNI snapshot index.
     Tray(usize),
     /// A menu category row.
@@ -1202,6 +1204,7 @@ impl Desktop {
             }),
             Hover::Clock => Some(crate::clock::format_now("%A, %B %-d, %Y")),
             Hover::ShowDesktop => Some(tr("Show desktop").to_string()),
+            Hover::Screenshot => Some(tr("Take screenshot").to_string()),
             Hover::Tray(i) => self.sni_icons.get(i).map(|icon| {
                 if icon.tooltip.is_empty() { icon.title.clone() } else { icon.tooltip.clone() }
             }),

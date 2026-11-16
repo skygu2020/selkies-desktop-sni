@@ -60,6 +60,8 @@ pub struct Layout {
     pub volume: Option<Rect>,
     /// The clock, when shown.
     pub clock: Option<Rect>,
+    /// The screenshot button, when shown.
+    pub screenshot: Option<Rect>,
     /// The show desktop button, when shown.
     pub show_desktop: Option<Rect>,
 }
@@ -77,6 +79,7 @@ impl Layout {
             Hover::Volume => self.volume,
             Hover::Clock => self.clock,
             Hover::ShowDesktop => self.show_desktop,
+            Hover::Screenshot => self.screenshot,
             Hover::Tray(index) => self.tray.map(|r| {
                 let size = r.h - 6;
                 Rect::new(r.x + GAP + index as i32 * (size + GAP), r.y + 3, size, size)
@@ -101,6 +104,13 @@ pub fn layout(d: &mut Desktop) -> Layout {
         .collect();
     let launchers_width = launcher_ids.len() as i32 * (bar.h - 6 + GAP);
     let mut right = bar.right() - GAP;
+    let screenshot = {
+        let width = 30;
+        right -= width;
+        let r = Rect::new(right, bar.y + 3, width, bar.h - 6);
+        right -= GAP;
+        Some(r)
+    };
     let show_desktop = if d.config.show_desktop_button {
         let width = show_desktop_glyph_width(bar.h - 6) + 8;
         right -= width;
@@ -183,6 +193,7 @@ pub fn layout(d: &mut Desktop) -> Layout {
         volume,
         clock,
         show_desktop,
+        screenshot,
     }
 }
 
@@ -215,6 +226,9 @@ pub fn hit(d: &mut Desktop, x: f64, y: f64) -> Hover {
     }
     if layout.clock.is_some_and(|r| r.contains(x, y)) {
         return Hover::Clock;
+    }
+    if layout.screenshot.is_some_and(|r| r.contains(x, y)) {
+        return Hover::Screenshot;
     }
     if layout.show_desktop.is_some_and(|r| r.contains(x, y)) {
         return Hover::ShowDesktop;
@@ -278,6 +292,11 @@ pub fn click(d: &mut Desktop, x: f64, y: f64, button: Button, _time: u32) {
                 });
             }
         }
+        Hover::Screenshot => match button {
+            Button::Left => d.requests.push(crate::event::Request::Screenshot),
+            Button::Right => d.open_popup(Popup::PanelMenu(x as i32)),
+            Button::Middle => {}
+        },
         Hover::ShowDesktop => match button {
             Button::Left => d.show_desktop(),
             Button::Right => d.open_popup(Popup::PanelMenu(x as i32)),
@@ -609,6 +628,18 @@ pub fn draw(d: &mut Desktop, canvas: &mut Canvas<'_>) {
         );
     }
 
+    if let Some(rect) = layout.screenshot {
+        if d.hover == Hover::Screenshot {
+            canvas.fill_rounded(rect, 4.0, ui::hover_bg());
+        }
+        let camera = Rect::new(rect.x + 7, rect.y + 9, rect.w - 14, rect.h - 18);
+        canvas.stroke_rounded(camera, 3.0, 1.3, ui::text());
+        canvas.stroke_rounded(
+            Rect::new(camera.x + camera.w / 2 - 3, camera.y + camera.h / 2 - 3, 6, 6),
+            3.0, 1.2, ui::text(),
+        );
+        canvas.fill_rect(Rect::new(camera.x + 4, camera.y - 2, 7, 2), ui::text());
+    }
     if let Some(rect) = layout.show_desktop {
         canvas.fill_rect(
             Rect::new(rect.x - GAP / 2 - 1, rect.y + 4, 1, rect.h - 8),
