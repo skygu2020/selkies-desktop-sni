@@ -221,7 +221,7 @@ fn crumb_rects(fonts: &mut Fonts, dir: &Path, scale: i32, path: Rect) -> Vec<(us
     let crumbs = crumbs(dir);
     let widths: Vec<i32> = crumbs
         .iter()
-        .map(|(name, _)| ui::text_width(fonts, name, ui::FONT_SIZE, false, scale) + 18)
+        .map(|(name, _)| ui::text_width(fonts, name, ui::FILE_FONT_SIZE, false, scale) + 18)
         .collect();
     let mut total = 0;
     let mut first = crumbs.len();
@@ -675,7 +675,7 @@ fn text_cursor_at_x(
     let mut previous = 0;
     for index in first..chars.len() {
         let value: String = chars[first..=index].iter().collect();
-        let next = ui::text_width(fonts, &value, ui::FONT_SIZE, false, scale);
+        let next = ui::text_width(fonts, &value, ui::FILE_FONT_SIZE, false, scale);
         let midpoint = inner_x as f64 + (previous + next) as f64 / 2.0;
         if x < midpoint {
             return index;
@@ -711,7 +711,7 @@ pub fn pointer_motion(d: &mut Desktop, id: u32, x: f64, y: f64) {
         let chars: Vec<char> = text.chars().collect();
         while first < cursor.min(chars.len()) {
             let visible: String = chars[first..cursor.min(chars.len())].iter().collect();
-            if ui::text_width(&mut d.fonts, &visible, ui::FONT_SIZE, false, d.files.window(id).map_or(1, |w| w.geometry.scale)) <= inner_w - 4 { break; }
+            if ui::text_width(&mut d.fonts, &visible, ui::FILE_FONT_SIZE, false, d.files.window(id).map_or(1, |w| w.geometry.scale)) <= inner_w - 4 { break; }
             first += 1;
         }
         let scale = d.files.window(id).map_or(1, |w| w.geometry.scale);
@@ -736,7 +736,7 @@ pub fn pointer_motion(d: &mut Desktop, id: u32, x: f64, y: f64) {
         let chars: Vec<char> = text.chars().collect();
         let prefix_width = |fonts: &mut Fonts, end: usize| {
             let value: String = chars[..end.min(chars.len())].iter().collect();
-            ui::text_width(fonts, &value, ui::FONT_SIZE, false, scale)
+            ui::text_width(fonts, &value, ui::FILE_FONT_SIZE, false, scale)
         };
         let full_width = prefix_width(&mut d.fonts, chars.len());
         let mut first = 0usize;
@@ -856,7 +856,7 @@ fn ghost(d: &mut Desktop, id: u32, item: &Item, count: usize) -> Option<Pixmap> 
                 &mut d.fonts,
                 &count.to_string(),
                 badge,
-                ui::FONT_SMALL,
+                ui::FILE_FONT_SIZE,
                 true,
                 Align::Center,
                 ui::text(),
@@ -945,7 +945,7 @@ pub fn pointer_button(
         let mut first = 0usize;
         while first < old_cursor.min(chars.len()) {
             let visible: String = chars[first..old_cursor.min(chars.len())].iter().collect();
-            if ui::text_width(&mut d.fonts, &visible, ui::FONT_SIZE, false, scale) <= inner_w - 4 { break; }
+            if ui::text_width(&mut d.fonts, &visible, ui::FILE_FONT_SIZE, false, scale) <= inner_w - 4 { break; }
             first += 1;
         }
         let next_cursor = text_cursor_at_x(&mut d.fonts, &text, first, inner_x, inner_w, x, scale);
@@ -1088,7 +1088,7 @@ pub fn pointer_button(
                         let scale = w.geometry.scale;
                         let prefix_width = |fonts: &mut Fonts, end: usize| {
                             let value: String = chars[..end.min(chars.len())].iter().collect();
-                            ui::text_width(fonts, &value, ui::FONT_SIZE, false, scale)
+                            ui::text_width(fonts, &value, ui::FILE_FONT_SIZE, false, scale)
                         };
                         let full_width = prefix_width(&mut d.fonts, chars.len());
                         let mut first = 0usize;
@@ -2627,7 +2627,7 @@ fn draw_path_field(canvas: &mut Canvas<'_>, d: &mut Desktop, rect: Rect, text: &
     let selected = anchor.map(|a| (a.min(cursor), a.max(cursor)));
     let prefix_width = |fonts: &mut Fonts, end: usize| -> i32 {
         let value: String = chars[..end.min(chars.len())].iter().collect();
-        ui::text_width(fonts, &value, ui::FONT_SIZE, false, scale)
+        ui::text_width(fonts, &value, ui::FILE_FONT_SIZE, false, scale)
     };
     let full_width = prefix_width(&mut d.fonts, chars.len());
     let mut first = 0usize;
@@ -2648,7 +2648,7 @@ fn draw_path_field(canvas: &mut Canvas<'_>, d: &mut Desktop, rect: Rect, text: &
             canvas.fill_rect(Rect::new(x1, inner.y + 3, x2 - x1, inner.h - 6), ui::accent());
         }
     }
-    ui::label(canvas, &mut d.fonts, &shown, inner, ui::FONT_SIZE, false, Align::Left, ui::text());
+    ui::label(canvas, &mut d.fonts, &shown, inner, ui::FILE_FONT_SIZE, false, Align::Left, ui::text());
     let caret_x = x_at(&mut d.fonts, cursor.max(first).min(last));
     canvas.fill_rect(Rect::new(caret_x, inner.y + 7, 1, inner.h - 14), ui::text());
     canvas.reset_clip();
@@ -2672,7 +2672,7 @@ fn draw_field(
     let (start, end) = anchor.map_or((cursor, cursor), |a| (a.min(cursor), a.max(cursor)));
     let prefix_width = |fonts: &mut Fonts, from: usize, to: usize| {
         let value: String = chars[from.min(chars.len())..to.min(chars.len())].iter().collect();
-        ui::text_width(fonts, &value, ui::FONT_SIZE, false, scale)
+        ui::text_width(fonts, &value, ui::FILE_FONT_SIZE, false, scale)
     };
     let mut first = 0usize;
     while first < cursor && prefix_width(&mut d.fonts, first, cursor) > text_rect.w - 4 {
@@ -2694,7 +2694,7 @@ fn draw_field(
             canvas.fill_rect(Rect::new(x1, text_rect.y + 3, x2 - x1, text_rect.h - 6), ui::accent());
         }
     }
-    ui::label(canvas, &mut d.fonts, &shown, text_rect, ui::FONT_SIZE, false, Align::Left, ui::text());
+    ui::label(canvas, &mut d.fonts, &shown, text_rect, ui::FILE_FONT_SIZE, false, Align::Left, ui::text());
     let caret_x = x_at(&mut d.fonts, cursor.max(first).min(last));
     if caret_visible {
         canvas.fill_rect(Rect::new(caret_x + 1, text_rect.y + 7, 1, text_rect.h - 14), ui::text());
@@ -2727,7 +2727,7 @@ fn draw_button(
         &mut d.fonts,
         label,
         rect,
-        ui::FONT_SIZE,
+        ui::FILE_FONT_SIZE,
         primary,
         Align::Center,
         ui::text(),
@@ -2845,7 +2845,7 @@ fn draw_toolbar(
                 &mut d.fonts,
                 "…",
                 Rect::new(layout.path.x + 4, layout.path.y, 18, layout.path.h),
-                ui::FONT_SIZE,
+                ui::FILE_FONT_SIZE,
                 false,
                 Align::Center,
                 ui::text_dim(),
@@ -2864,7 +2864,7 @@ fn draw_toolbar(
                 &mut d.fonts,
                 &crumbs[*i].0,
                 *rect,
-                ui::FONT_SIZE,
+                ui::FILE_FONT_SIZE,
                 current,
                 Align::Center,
                 ui::text(),
@@ -2952,7 +2952,7 @@ fn draw_sidebar(
             &mut d.fonts,
             &place.name,
             Rect::new(icon_rect.right() + 8, rect.y, rect.w - 34, rect.h),
-            ui::FONT_SIZE,
+            ui::FILE_FONT_SIZE,
             current,
             Align::Left,
             ui::text(),
@@ -3140,7 +3140,7 @@ fn draw_list(
             &mut d.fonts,
             &text,
             Rect::new(rect.x + 6, rect.y, rect.w - 12, rect.h),
-            ui::FONT_SIZE,
+            ui::FILE_FONT_SIZE,
             true,
             align,
             ui::text_dim(),
@@ -3252,7 +3252,7 @@ fn draw_list(
                         &mut d.fonts,
                         &text,
                         Rect::new(col.x + 6, row.y, col.w - 12, row.h),
-                        ui::FONT_SIZE,
+                        ui::FILE_FONT_SIZE,
                         false,
                         Align::Right,
                         ui::text_dim(),
@@ -3265,7 +3265,7 @@ fn draw_list(
                         &mut d.fonts,
                         &text,
                         Rect::new(col.x + 6, row.y, col.w - 12, row.h),
-                        ui::FONT_SIZE,
+                        ui::FILE_FONT_SIZE,
                         false,
                         Align::Left,
                         ui::text_dim(),
@@ -3285,7 +3285,7 @@ fn draw_list(
                         &mut d.fonts,
                         &text,
                         Rect::new(col.x + 6, row.y, col.w - 12, row.h),
-                        ui::FONT_SMALL,
+                        ui::FILE_FONT_SIZE,
                         false,
                         Align::Left,
                         ui::text_dim(),
@@ -3323,7 +3323,7 @@ fn draw_empty(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, content: R
         &mut d.fonts,
         message,
         Rect::new(content.x, content.y + 20, content.w, 30),
-        ui::FONT_SIZE,
+        ui::FILE_FONT_SIZE,
         false,
         Align::Center,
         ui::text_dim(),
@@ -3392,7 +3392,7 @@ fn draw_status(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, layout: &
     let mut right = status.right() - PAD;
     if !filter.is_empty() {
         let label = trf("Filter: {text}", &[("text", &filter)]);
-        let width = ui::text_width(&mut d.fonts, &label, ui::FONT_SMALL, false, scale) + 16;
+        let width = ui::text_width(&mut d.fonts, &label, ui::FILE_FONT_SIZE, false, scale) + 16;
         let chip = Rect::new(right - width, status.y + 4, width, status.h - 8);
         canvas.fill_rounded(chip, 5.0, ui::active_bg());
         ui::label(
@@ -3400,7 +3400,7 @@ fn draw_status(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, layout: &
             &mut d.fonts,
             &label,
             chip,
-            ui::FONT_SMALL,
+            ui::FILE_FONT_SIZE,
             false,
             Align::Center,
             ui::text(),
@@ -3412,7 +3412,7 @@ fn draw_status(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, layout: &
         &mut d.fonts,
         &text,
         Rect::new(status.x + PAD + 2, status.y, right - status.x - PAD - 2, status.h),
-        ui::FONT_SMALL,
+        ui::FILE_FONT_SIZE,
         false,
         Align::Left,
         ui::text_dim(),
@@ -3466,7 +3466,7 @@ fn draw_footer(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, footer: R
             cancel.x - footer.x - 2 * PAD,
             footer.h,
         ),
-        ui::FONT_SIZE,
+        ui::FILE_FONT_SIZE,
         false,
         Align::Left,
         if chosen.is_some() {
@@ -3503,9 +3503,9 @@ fn draw_properties(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover
         rgba(0, 0, 0, 0x70),
     );
     ui::draw_popup_frame(canvas, frame);
-    ui::label(canvas, &mut d.fonts, tr("Properties"), Rect::new(frame.x + 16, frame.y + 10, frame.w - 32, 28), ui::FONT_SIZE + 1.0, true, Align::Left, ui::text());
+    ui::label(canvas, &mut d.fonts, tr("Properties"), Rect::new(frame.x + 16, frame.y + 10, frame.w - 32, 28), ui::FILE_FONT_SIZE, true, Align::Left, ui::text());
     let name = files::ops::file_name(&properties.path);
-    ui::label(canvas, &mut d.fonts, &name, Rect::new(frame.x + 16, frame.y + 42, frame.w - 32, 24), ui::FONT_SIZE, true, Align::Left, ui::text());
+    ui::label(canvas, &mut d.fonts, &name, Rect::new(frame.x + 16, frame.y + 42, frame.w - 32, 24), ui::FILE_FONT_SIZE, true, Align::Left, ui::text());
     let metadata = std::fs::metadata(&properties.path).ok();
     let kind = if metadata.as_ref().is_some_and(|m| m.is_dir()) { tr("Folder") } else { tr("File") };
     let size = if properties.size_pending {
@@ -3513,15 +3513,15 @@ fn draw_properties(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover
     } else {
         properties.size.map(files::human_size).unwrap_or_else(|| "—".to_string())
     };
-    ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Type"), kind), Rect::new(frame.x + 16, frame.y + 70, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
-    ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Size"), size), Rect::new(frame.x + 16, frame.y + 92, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
-    ui::label(canvas, &mut d.fonts, &format!("UID: {}    GID: {}", properties.uid, properties.gid), Rect::new(frame.x + 16, frame.y + 116, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
-    ui::label(canvas, &mut d.fonts, &format!("{}: {:04o}", tr("Permissions"), properties.mode), Rect::new(frame.x + 16, frame.y + 138, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
+    ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Type"), kind), Rect::new(frame.x + 16, frame.y + 70, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
+    ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Size"), size), Rect::new(frame.x + 16, frame.y + 92, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
+    ui::label(canvas, &mut d.fonts, &format!("UID: {}    GID: {}", properties.uid, properties.gid), Rect::new(frame.x + 16, frame.y + 116, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
+    ui::label(canvas, &mut d.fonts, &format!("{}: {:04o}", tr("Permissions"), properties.mode), Rect::new(frame.x + 16, frame.y + 138, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
     for (column, label) in ["Read", "Write", "Execute"].iter().enumerate() {
-        ui::label(canvas, &mut d.fonts, tr(label), Rect::new(frame.x + 132 + column as i32 * 92, frame.y + 158, 84, 20), ui::FONT_SMALL, true, Align::Center, ui::text());
+        ui::label(canvas, &mut d.fonts, tr(label), Rect::new(frame.x + 132 + column as i32 * 92, frame.y + 158, 84, 20), ui::FILE_FONT_SIZE, true, Align::Center, ui::text());
     }
     for (row, label) in ["Owner", "Group", "Others"].iter().enumerate() {
-        ui::label(canvas, &mut d.fonts, tr(label), Rect::new(frame.x + 16, frame.y + 178 + row as i32 * 32, 108, 24), ui::FONT_SMALL, false, Align::Left, ui::text());
+        ui::label(canvas, &mut d.fonts, tr(label), Rect::new(frame.x + 16, frame.y + 178 + row as i32 * 32, 108, 24), ui::FILE_FONT_SIZE, false, Align::Left, ui::text());
     }
     for bit in 0..9 {
         let rect = property_bit_rect(frame, bit);
@@ -3529,7 +3529,7 @@ fn draw_properties(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover
         let tint = if properties.can_modify { ui::separator() } else { ui::text_dim() };
         canvas.stroke_rounded(rect, 4.0, 1.0, tint);
         if enabled {
-            ui::label(canvas, &mut d.fonts, "✓", rect, ui::FONT_SIZE, true, Align::Center, if properties.can_modify { ui::accent() } else { ui::text_dim() });
+            ui::label(canvas, &mut d.fonts, "✓", rect, ui::FILE_FONT_SIZE, true, Align::Center, if properties.can_modify { ui::accent() } else { ui::text_dim() });
         }
         if properties.can_modify && hover == Hit::Property(bit) {
             canvas.stroke_rounded(rect.inflate(2), 5.0, 1.0, ui::accent());
@@ -3539,9 +3539,9 @@ fn draw_properties(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover
         let recursive = property_recursive_rect(frame);
         canvas.stroke_rounded(Rect::new(recursive.x, recursive.y + 2, 18, 18), 3.0, 1.0, if properties.can_modify { ui::separator() } else { ui::text_dim() });
         if properties.recursive {
-            ui::label(canvas, &mut d.fonts, "✓", Rect::new(recursive.x, recursive.y + 1, 18, 18), ui::FONT_SMALL, true, Align::Center, if properties.can_modify { ui::accent() } else { ui::text_dim() });
+            ui::label(canvas, &mut d.fonts, "✓", Rect::new(recursive.x, recursive.y + 1, 18, 18), ui::FILE_FONT_SIZE, true, Align::Center, if properties.can_modify { ui::accent() } else { ui::text_dim() });
         }
-        ui::label(canvas, &mut d.fonts, "Apply to subfolders and files", Rect::new(recursive.x + 26, recursive.y, recursive.w - 26, 22), ui::FONT_SMALL, false, Align::Left, if properties.can_modify { ui::text() } else { ui::text_dim() });
+        ui::label(canvas, &mut d.fonts, "Apply to subfolders and files", Rect::new(recursive.x + 26, recursive.y, recursive.w - 26, 22), ui::FILE_FONT_SIZE, false, Align::Left, if properties.can_modify { ui::text() } else { ui::text_dim() });
         if properties.can_modify && hover == Hit::Property(11) {
             canvas.stroke_rounded(recursive.inflate(2), 4.0, 1.0, ui::accent());
         }
@@ -3558,13 +3558,13 @@ fn draw_transfer_confirm(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>,
     ui::draw_popup_frame(canvas, frame);
     let source = pending.conflicts.get(pending.index).map(|p| files::ops::file_name(p)).unwrap_or_default();
     let title = tr("A file with this name already exists");
-    ui::label(canvas, &mut d.fonts, title, Rect::new(frame.x + 16, frame.y + 14, frame.w - 32, 26), ui::FONT_SIZE + 1.0, true, Align::Left, ui::text());
-    ui::label(canvas, &mut d.fonts, &source, Rect::new(frame.x + 16, frame.y + 46, frame.w - 32, 24), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
+    ui::label(canvas, &mut d.fonts, title, Rect::new(frame.x + 16, frame.y + 14, frame.w - 32, 26), ui::FILE_FONT_SIZE, true, Align::Left, ui::text());
+    ui::label(canvas, &mut d.fonts, &source, Rect::new(frame.x + 16, frame.y + 46, frame.w - 32, 24), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
     let detail = trf("{current} of {total} conflicts", &[
         ("current", &(pending.index + 1).to_string()),
         ("total", &pending.conflicts.len().to_string()),
     ]);
-    ui::label(canvas, &mut d.fonts, &detail, Rect::new(frame.x + 16, frame.y + 72, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
+    ui::label(canvas, &mut d.fonts, &detail, Rect::new(frame.x + 16, frame.y + 72, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
     draw_button(canvas, d, buttons[0], tr("Cancel"), hover == Hit::TransferConfirm(0), false);
     draw_button(canvas, d, buttons[1], tr("Rename"), hover == Hit::TransferConfirm(1), false);
     draw_button(canvas, d, buttons[2], tr("Replace"), hover == Hit::TransferConfirm(2), true);
@@ -3593,7 +3593,7 @@ fn draw_confirm(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, layout: 
         &mut d.fonts,
         &title,
         Rect::new(bx.x + 16, bx.y + 14, bx.w - 32, 26),
-        ui::FONT_SIZE + 1.0,
+        ui::FILE_FONT_SIZE,
         true,
         Align::Left,
         ui::text(),
@@ -3603,7 +3603,7 @@ fn draw_confirm(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, layout: 
         &mut d.fonts,
         tr("This cannot be undone."),
         Rect::new(bx.x + 16, bx.y + 44, bx.w - 32, 22),
-        ui::FONT_SMALL,
+        ui::FILE_FONT_SIZE,
         false,
         Align::Left,
         ui::text_dim(),
@@ -3624,7 +3624,7 @@ fn draw_confirm(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, layout: 
         &mut d.fonts,
         tr("Delete"),
         delete,
-        ui::FONT_SIZE,
+        ui::FILE_FONT_SIZE,
         true,
         Align::Center,
         ui::text(),
@@ -3663,7 +3663,7 @@ fn draw_menu(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover: Hit)
                     &mut d.fonts,
                     label,
                     Rect::new(rect.x + 10, rect.y, rect.w - 34, rect.h),
-                    ui::FONT_SIZE,
+                    ui::FILE_FONT_SIZE,
                     false,
                     Align::Left,
                     if *enabled { ui::text() } else { ui::text_dim() },
@@ -3674,7 +3674,7 @@ fn draw_menu(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover: Hit)
                         &mut d.fonts,
                         "›",
                         Rect::new(rect.right() - 24, rect.y, 14, rect.h),
-                        ui::FONT_SIZE,
+                        ui::FILE_FONT_SIZE,
                         false,
                         Align::Center,
                         ui::text(),
@@ -3700,7 +3700,7 @@ fn draw_menu(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover: Hit)
                 &mut d.fonts,
                 name,
                 Rect::new(rect.x + 10, rect.y, rect.w - 20, rect.h),
-                ui::FONT_SIZE,
+                ui::FILE_FONT_SIZE,
                 false,
                 Align::Left,
                 ui::text(),

@@ -36,7 +36,7 @@ pub const FONT_SIZE: f32 = 13.0;
 /// Small font size for secondary text.
 pub const FONT_SMALL: f32 = 12.0;
 /// Font size for file names and primary file-list content.
-pub const FILE_FONT_SIZE: f32 = FONT_SIZE + 2.0;
+pub const FILE_FONT_SIZE: f32 = FONT_SIZE + 1.0;
 /// Pixels one wheel step scrolls a list.
 pub const SCROLL_STEP: f64 = 48.0;
 /// Milliseconds a second click may follow the first to count as a double click.
