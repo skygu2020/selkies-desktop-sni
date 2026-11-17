@@ -432,31 +432,31 @@ fn property_recursive_rect(frame: Rect) -> Rect {
 /// Symbolic links below the root are not followed.
 fn apply_property_permissions(path: &std::path::Path, mode: u32, recursive: bool) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))?;
-    if !recursive {
-        return Ok(());
-    }
-
-    fn visit(dir: &std::path::Path, mode: u32) -> std::io::Result<()> {
-        use std::os::unix::fs::PermissionsExt;
-        for entry in std::fs::read_dir(dir)? {
-            let path = entry?.path();
-            let metadata = std::fs::symlink_metadata(&path)?;
-            if metadata.file_type().is_symlink() {
-                continue;
+    if recursive && std::fs::symlink_metadata(path)?.is_dir() {
+        // Collect everything before chmod: changing a directory to mode 000
+        // must not prevent traversal into its children.
+        fn collect(dir: &std::path::Path, paths: &mut Vec<std::path::PathBuf>) -> std::io::Result<()> {
+            for entry in std::fs::read_dir(dir)? {
+                let path = entry?.path();
+                let metadata = std::fs::symlink_metadata(&path)?;
+                if metadata.file_type().is_symlink() {
+                    continue;
+                }
+                if metadata.is_dir() {
+                    collect(&path, paths)?;
+                }
+                paths.push(path);
             }
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode))?;
-            if metadata.is_dir() {
-                visit(&path, mode)?;
-            }
+            Ok(())
         }
-        Ok(())
-    }
 
-    if std::fs::symlink_metadata(path)?.is_dir() {
-        visit(path, mode)?;
+        let mut descendants = Vec::new();
+        collect(path, &mut descendants)?;
+        for descendant in descendants {
+            std::fs::set_permissions(descendant, std::fs::Permissions::from_mode(mode))?;
+        }
     }
-    Ok(())
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
 }
 
 /// The confirmation box and its two buttons.
