@@ -1616,7 +1616,7 @@ fn perform(d: &mut Desktop, id: u32, action: MenuAction) {
         }
         MenuAction::Properties(path) => {
             if let Ok(metadata) = std::fs::metadata(&path) {
-                use std::os::unix::fs::PermissionsExt;
+                use std::os::unix::fs::{MetadataExt, PermissionsExt};
                 let is_dir = metadata.is_dir();
                 let euid = unsafe { libc::geteuid() };
                 let can_modify = euid == 0 || metadata.uid() == euid;
