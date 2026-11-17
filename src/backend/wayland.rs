@@ -59,6 +59,13 @@ const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
 const BTN_MIDDLE: u32 = 0x112;
 
+/// Data returned with a wl_buffer release event.
+#[derive(Clone)]
+struct BufferReleaseData {
+    busy: Arc<AtomicBool>,
+    surface: Option<SurfaceId>,
+}
+
 /// A shared memory buffer with the mapping the frame is copied into.
 struct ShmBuffer {
     pool: wl_shm_pool::WlShmPool,
@@ -1022,7 +1029,9 @@ impl WaylandBackend {
             return Some(index);
         }
         if surface.buffers.len() >= 3 {
-            return Some(0);
+            // Never overwrite a buffer still owned by the compositor. Its
+            // release event schedules another render for file-manager windows.
+            return None;
         }
         let size = width as usize * height as usize * 4;
         let fd = create_memfd(size)?;
@@ -1036,7 +1045,13 @@ impl WaylandBackend {
             width * 4,
             wl_shm::Format::Argb8888,
             qh,
-            busy.clone(),
+            BufferReleaseData {
+                busy: busy.clone(),
+                surface: match target {
+                    Target::Surface(surface @ SurfaceId::Window(_)) => Some(surface),
+                    _ => None,
+                },
+            },
         );
         surface.buffers.push(ShmBuffer {
             pool,
@@ -1083,7 +1098,7 @@ fn single_buffer(
         width * 4,
         wl_shm::Format::Argb8888,
         qh,
-        busy.clone(),
+        BufferReleaseData { busy: busy.clone(), surface: None },
     );
     Some(ShmBuffer {
         pool,
@@ -1982,17 +1997,20 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for State {
     }
 }
 
-impl Dispatch<wl_buffer::WlBuffer, Arc<AtomicBool>> for State {
+impl Dispatch<wl_buffer::WlBuffer, BufferReleaseData> for State {
     fn event(
-        _: &mut Self,
+        state: &mut Self,
         _: &wl_buffer::WlBuffer,
         event: wl_buffer::Event,
-        busy: &Arc<AtomicBool>,
+        data: &BufferReleaseData,
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
         if let wl_buffer::Event::Release = event {
-            busy.store(false, Ordering::Release);
+            data.busy.store(false, Ordering::Release);
+            if let Some(surface) = data.surface {
+                state.events.push(Event::BufferReleased { surface });
+            }
         }
     }
 }

@@ -54,6 +54,8 @@ pub struct ToplevelState {
 /// An input or window event from the display server, in logical coordinates.
 #[derive(Debug)]
 pub enum Event {
+    /// A file-manager surface buffer was released and can be rendered again.
+    BufferReleased { surface: SurfaceId },
     /// A surface was given a size, at a scale.
     Configured {
         surface: SurfaceId,

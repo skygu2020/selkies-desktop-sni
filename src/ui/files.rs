@@ -891,7 +891,9 @@ pub fn pointer_button(
     if !pressed {
         if button == Button::Left && let Some(w) = d.files.window_mut(id) {
             w.path_selecting = false;
-            w.selection_drag = None;
+            if w.selection_drag.take().is_some() {
+                w.dirty = true;
+            }
         }
         if button == Button::Left && let Some(rename) = d.files.window_mut(id).and_then(|w| w.rename.as_mut()) { rename.selecting = false; }
         if button == Button::Left
@@ -2034,6 +2036,9 @@ pub fn pointer_axis(d: &mut Desktop, id: u32, x: f64, y: f64, delta: f64) {
 pub fn pointer_leave(d: &mut Desktop, id: u32) {
     if let Some(w) = d.files.window_mut(id) {
         w.press = None;
+        if w.selection_drag.take().is_some() {
+            w.dirty = true;
+        }
     }
     if matches!(d.hover, Hover::Files(h, _) if h == id) {
         d.set_hover(Hover::None);

@@ -901,6 +901,12 @@ impl Desktop {
     /// * `event` - The event.
     pub fn handle(&mut self, event: Event) {
         match event {
+            Event::BufferReleased { surface: SurfaceId::Window(id) } => {
+                if let Some(window) = self.files.window_mut(id) {
+                    window.dirty = true;
+                }
+            }
+            Event::BufferReleased { .. } => {}
             Event::Configured {
                 surface,
                 width,
