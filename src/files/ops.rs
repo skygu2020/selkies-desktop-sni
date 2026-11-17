@@ -22,12 +22,14 @@ pub enum Job {
         id: u64,
         sources: Vec<PathBuf>,
         dest: PathBuf,
+        replace: HashSet<PathBuf>,
     },
     /// Move files into a directory.
     Move {
         id: u64,
         sources: Vec<PathBuf>,
         dest: PathBuf,
+        replace: HashSet<PathBuf>,
     },
     /// Delete files and directories permanently.
     Delete { id: u64, paths: Vec<PathBuf> },
@@ -232,12 +234,12 @@ fn run(job: Job, tx: &Sender<Message>, wake: Option<&OwnedFd>) {
             let errors = extract_archive(&archive, &dest);
             send(Message::Done { id, errors });
         }
-        Job::Copy { id, sources, dest } => {
-            let errors = transfer(id, &sources, &dest, false, &send);
+        Job::Copy { id, sources, dest, replace } => {
+            let errors = transfer(id, &sources, &dest, false, &replace, &send);
             send(Message::Done { id, errors });
         }
-        Job::Move { id, sources, dest } => {
-            let errors = transfer(id, &sources, &dest, true, &send);
+        Job::Move { id, sources, dest, replace } => {
+            let errors = transfer(id, &sources, &dest, true, &replace, &send);
             send(Message::Done { id, errors });
         }
         Job::Delete { id, paths } => {
@@ -313,7 +315,14 @@ fn decode_thumbnail(key: &ThumbKey) -> Option<Pixmap> {
 
 /// Copies or moves the sources into a directory, naming a copy placed next
 /// to its original and never overwriting what is already there.
-fn transfer(id: u64, sources: &[PathBuf], dest: &Path, moving: bool, send: &dyn Fn(Message)) -> Vec<String> {
+fn transfer(
+    id: u64,
+    sources: &[PathBuf],
+    dest: &Path,
+    moving: bool,
+    replace: &HashSet<PathBuf>,
+    send: &dyn Fn(Message),
+) -> Vec<String> {
     let mut errors = Vec::new();
     let total: usize = sources.iter().map(|s| count_files(s)).sum::<usize>().max(1);
     let mut done = 0usize;
@@ -332,7 +341,17 @@ fn transfer(id: u64, sources: &[PathBuf], dest: &Path, moving: bool, send: &dyn 
             ));
             continue;
         }
-        let target = unique_name(dest, name.to_string_lossy().as_ref(), same_dir);
+        let target = if replace.contains(source) {
+            dest.join(name)
+        } else {
+            unique_name(dest, name.to_string_lossy().as_ref(), same_dir)
+        };
+        if replace.contains(source) && (target.exists() || target.is_symlink()) {
+            if let Err(error) = remove_path(&target) {
+                errors.push(format!("{}: {error}", file_name(source)));
+                continue;
+            }
+        }
         send(Message::Progress {
             id,
             done,
@@ -362,6 +381,16 @@ fn transfer(id: u64, sources: &[PathBuf], dest: &Path, moving: bool, send: &dyn 
         }
     }
     errors
+}
+
+/// Removes an existing file, symlink or directory before an explicit replacement.
+fn remove_path(path: &Path) -> std::io::Result<()> {
+    let metadata = std::fs::symlink_metadata(path)?;
+    if metadata.is_dir() && !metadata.file_type().is_symlink() {
+        std::fs::remove_dir_all(path)
+    } else {
+        std::fs::remove_file(path)
+    }
 }
 
 /// Copies a file, symlink or directory tree, reporting each file.
