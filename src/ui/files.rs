@@ -3334,14 +3334,14 @@ fn draw_empty(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, content: R
 fn draw_status(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, layout: &Layout, scale: i32) {
     let status = layout.status;
     canvas.fill_rect(Rect::new(status.x, status.y, status.w, 1), ui::separator());
-    let (text, filter) = {
+    let (text, filter, progress_ratio) = {
         let w = &d.files.windows[index];
         let text = if let Some((_, progress)) = &w.progress {
             trf(
                 "Processing {name} ({done} of {total})",
                 &[
                     ("name", &progress.current),
-                    ("done", &(progress.done + 1).to_string()),
+                    ("done", &(progress.done.saturating_add(1).min(progress.total).to_string())),
                     ("total", &progress.total.to_string()),
                 ],
             )
@@ -3371,7 +3371,14 @@ fn draw_status(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, layout: &
             }
             text
         };
-        (text, w.filter.clone())
+        let ratio = w.progress.as_ref().map(|(_, progress)| {
+            if progress.total == 0 {
+                0.0
+            } else {
+                (progress.done as f64 / progress.total as f64).clamp(0.0, 1.0)
+            }
+        });
+        (text, w.filter.clone(), ratio)
     };
     let mut right = status.right() - PAD;
     if !filter.is_empty() {
@@ -3401,6 +3408,14 @@ fn draw_status(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, layout: &
         Align::Left,
         ui::text_dim(),
     );
+    if let Some(ratio) = progress_ratio {
+        let track = Rect::new(status.x, status.bottom() - 2, status.w, 2);
+        canvas.fill_rect(track, ui::separator());
+        let filled = (track.w as f64 * ratio).round() as i32;
+        if filled > 0 {
+            canvas.fill_rect(Rect::new(track.x, track.y, filled, track.h), ui::accent());
+        }
+    }
 }
 
 /// Draws the picker footer.

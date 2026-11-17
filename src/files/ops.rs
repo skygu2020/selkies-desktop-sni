@@ -360,6 +360,12 @@ fn transfer(
         });
         if moving && std::fs::rename(source, &target).is_ok() {
             done += count_files(&target);
+            send(Message::Progress {
+                id,
+                done,
+                total,
+                current: file_name(source),
+            });
             continue;
         }
         if let Err(error) = copy_tree(source, &target, id, total, &mut done, send) {
@@ -407,6 +413,12 @@ fn copy_tree(
         let link = std::fs::read_link(source)?;
         std::os::unix::fs::symlink(link, target)?;
         *done += 1;
+        send(Message::Progress {
+            id,
+            done: *done,
+            total,
+            current: file_name(source),
+        });
         return Ok(());
     }
     if metadata.is_dir() {
@@ -430,6 +442,12 @@ fn copy_tree(
     }
     std::fs::copy(source, target)?;
     *done += 1;
+    send(Message::Progress {
+        id,
+        done: *done,
+        total,
+        current: file_name(source),
+    });
     Ok(())
 }
 
