@@ -50,24 +50,24 @@ SELKIES_DESKTOP_<KEY> environment variables; see the README.
 
 /// Program entry point.  Without arguments runs the desktop; with a command
 /// word sends it to the running desktop over the control socket.
-fn main() {
+fn main() -> std::process::ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if let Some(arg) = args.first() {
         match arg.as_str() {
             "--help" | "-h" | "help" => {
                 print!("{USAGE}");
-                return;
+                return std::process::ExitCode::SUCCESS;
             }
             "--screenshot" => {
                 if let Err(error) = screenshot::run() {
                     eprintln!("selkies-desktop: screenshot failed: {error:#}");
                     std::process::exit(1);
                 }
-                return;
+                return std::process::ExitCode::SUCCESS;
             }
             "--version" | "-V" | "version" => {
                 println!("selkies-desktop {}", env!("CARGO_PKG_VERSION"));
-                return;
+                return std::process::ExitCode::SUCCESS;
             }
             "--lookup-icon" => {
                 let name = args.get(1).cloned().unwrap_or_default();
@@ -80,7 +80,7 @@ fn main() {
                         std::process::exit(1);
                     }
                 }
-                return;
+                return std::process::ExitCode::SUCCESS;
             }
             other => match ipc::Command::parse(&args.join(" ")) {
                 Some(ipc::Command::Files(dir)) => {
@@ -89,14 +89,14 @@ fn main() {
                         eprintln!("selkies-desktop: {error}");
                         std::process::exit(1);
                     }
-                    return;
+                    return std::process::ExitCode::SUCCESS;
                 }
                 Some(command) => {
                     if let Err(error) = ipc::send(command) {
                         eprintln!("selkies-desktop: {error}");
                         std::process::exit(1);
                     }
-                    return;
+                    return std::process::ExitCode::SUCCESS;
                 }
                 None => {
                     eprintln!("selkies-desktop: unknown argument {other}\n{USAGE}");
@@ -108,7 +108,7 @@ fn main() {
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_IGN);
     }
-    std::process::exit(run());
+    std::process::ExitCode::from(run() as u8)
 }
 
 /// Starts the standalone screenshot selector without blocking the panel.
