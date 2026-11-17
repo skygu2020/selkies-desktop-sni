@@ -1736,7 +1736,7 @@ fn perform(d: &mut Desktop, id: u32, action: MenuAction) {
                     index,
                     text: item.name.clone(),
                     cursor: item.name.chars().count(),
-                    anchor: None,
+                    anchor: Some(0),
                     last_click: None,
                     selecting: false,
                     caret_visible: true,
@@ -1891,7 +1891,7 @@ fn new_folder(d: &mut Desktop, id: u32) {
             index,
             text: files::ops::file_name(&path),
             cursor: files::ops::file_name(&path).chars().count(),
-            anchor: None,
+            anchor: Some(0),
             last_click: None,
             selecting: false,
             caret_visible: true,
@@ -1923,7 +1923,7 @@ fn new_file(d: &mut Desktop, id: u32) {
                     index,
                     text: files::ops::file_name(&path),
                     cursor: files::ops::file_name(&path).chars().count(),
-                    anchor: None,
+                    anchor: Some(0),
                     last_click: None,
                     selecting: false,
                     caret_visible: true,
@@ -2660,8 +2660,7 @@ fn draw_field(
     anchor: Option<usize>,
     caret_visible: bool,
 ) {
-    canvas.fill_rounded(rect, 5.0, ui::field_bg());
-    canvas.stroke_rounded(rect, 5.0, 1.0, ui::accent());
+    // Transparent editor: show only the selected text and caret.
     let text_rect = Rect::new(rect.x + 8, rect.y, rect.w - 16, rect.h);
     let chars: Vec<char> = text.chars().collect();
     let cursor = cursor.min(chars.len());

@@ -39,7 +39,7 @@ session.  With a command, talks to the running panel instead:
   --files [DIR]    open the file manager, on a folder when given
   --show-desktop   minimize every window, or restore them
   --reload         read the applications and settings again
-  --quit           exit the running panel
+  --quit, --exit   exit the running panel cleanly (including SNI host shutdown)
   --lookup-icon N  print the file an icon name resolves to and exit
   --version        print the version
   --help           print this message
