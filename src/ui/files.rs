@@ -411,7 +411,7 @@ fn submenu_row_at(rect: Rect, x: f64, y: f64, count: usize) -> Option<usize> {
 /// The properties dialog and its two buttons.
 fn properties_rects(w: &FilesWindow) -> (Rect, Rect, Rect) {
     let width = 460.min(w.geometry.width - 20);
-    let height = 330.min(w.geometry.height - 20);
+    let height = 390.min(w.geometry.height - 20);
     let frame = Rect::new((w.geometry.width - width) / 2, (w.geometry.height - height) / 2, width, height);
     let apply = Rect::new(frame.right() - 16 - 90, frame.bottom() - 16 - 30, 90, 30);
     let cancel = Rect::new(apply.x - 8 - 90, apply.y, 90, 30);
@@ -421,7 +421,42 @@ fn properties_rects(w: &FilesWindow) -> (Rect, Rect, Rect) {
 fn property_bit_rect(frame: Rect, bit: usize) -> Rect {
     let row = bit / 3;
     let column = bit % 3;
-    Rect::new(frame.x + 162 + column as i32 * 92, frame.y + 148 + row as i32 * 32, 24, 24)
+    Rect::new(frame.x + 162 + column as i32 * 92, frame.y + 178 + row as i32 * 32, 24, 24)
+}
+
+fn property_recursive_rect(frame: Rect) -> Rect {
+    Rect::new(frame.x + 16, frame.y + 286, frame.w - 32, 24)
+}
+
+/// Apply a permission mode to a path and optionally all descendants.
+/// Symbolic links below the root are not followed.
+fn apply_property_permissions(path: &std::path::Path, mode: u32, recursive: bool) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))?;
+    if !recursive {
+        return Ok(());
+    }
+
+    fn visit(dir: &std::path::Path, mode: u32) -> std::io::Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+        for entry in std::fs::read_dir(dir)? {
+            let path = entry?.path();
+            let metadata = std::fs::symlink_metadata(&path)?;
+            if metadata.file_type().is_symlink() {
+                continue;
+            }
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode))?;
+            if metadata.is_dir() {
+                visit(&path, mode)?;
+            }
+        }
+        Ok(())
+    }
+
+    if std::fs::symlink_metadata(path)?.is_dir() {
+        visit(path, mode)?;
+    }
+    Ok(())
 }
 
 /// The confirmation box and its two buttons.
@@ -509,9 +544,16 @@ pub fn hit(d: &mut Desktop, id: u32, x: f64, y: f64) -> Hit {
         if apply.contains(x, y) {
             return Hit::Property(10);
         }
-        for bit in 0..9 {
-            if property_bit_rect(frame, bit).contains(x, y) {
-                return Hit::Property(bit);
+        if let Some(properties) = &w.properties
+            && properties.can_modify
+        {
+            for bit in 0..9 {
+                if property_bit_rect(frame, bit).contains(x, y) {
+                    return Hit::Property(bit);
+                }
+            }
+            if properties.is_dir && property_recursive_rect(frame).contains(x, y) {
+                return Hit::Property(11);
             }
         }
         return Hit::None;
@@ -917,8 +959,17 @@ pub fn pointer_button(
         if button == Button::Left {
             match hit {
                 Hit::Property(bit @ 0..=8) => {
-                    if let Some(properties) = d.files.window_mut(id).and_then(|w| w.properties.as_mut()) {
+                    if let Some(properties) = d.files.window_mut(id).and_then(|w| w.properties.as_mut())
+                        && properties.can_modify
+                    {
                         properties.mode ^= 1 << (8 - bit);
+                    }
+                }
+                Hit::Property(11) => {
+                    if let Some(properties) = d.files.window_mut(id).and_then(|w| w.properties.as_mut())
+                        && properties.can_modify && properties.is_dir
+                    {
+                        properties.recursive = !properties.recursive;
                     }
                 }
                 Hit::Property(9) => {
@@ -927,16 +978,16 @@ pub fn pointer_button(
                 Hit::Property(10) => {
                     let properties = d.files.window_mut(id).and_then(|w| w.properties.take());
                     if let Some(properties) = properties {
-                        use std::os::unix::fs::PermissionsExt;
-                        match std::fs::set_permissions(
-                            &properties.path,
-                            std::fs::Permissions::from_mode(properties.mode),
-                        ) {
-                            Ok(()) => d.files.refresh(id),
-                            Err(error) => status(d, id, trf(
-                                "Cannot change permissions: {error}",
-                                &[("error", &error.to_string())],
-                            )),
+                        if !properties.can_modify {
+                            status(d, id, tr("Cannot change permissions").to_string());
+                        } else {
+                            match apply_property_permissions(&properties.path, properties.mode, properties.recursive) {
+                                Ok(()) => d.files.refresh(id),
+                                Err(error) => status(d, id, trf(
+                                    "Cannot change permissions: {error}",
+                                    &[("error", &error.to_string())],
+                                )),
+                            }
                         }
                     }
                 }
@@ -1567,11 +1618,18 @@ fn perform(d: &mut Desktop, id: u32, action: MenuAction) {
             if let Ok(metadata) = std::fs::metadata(&path) {
                 use std::os::unix::fs::PermissionsExt;
                 let is_dir = metadata.is_dir();
+                let euid = unsafe { libc::geteuid() };
+                let can_modify = euid == 0 || metadata.uid() == euid;
                 let size = if is_dir { None } else { Some(metadata.len()) };
                 if let Some(w) = d.files.window_mut(id) {
                     w.properties = Some(Properties {
                         path: path.clone(),
                         mode: metadata.permissions().mode() & 0o777,
+                        uid: metadata.uid(),
+                        gid: metadata.gid(),
+                        can_modify,
+                        is_dir,
+                        recursive: false,
                         size,
                         size_pending: is_dir,
                     });
@@ -3368,22 +3426,35 @@ fn draw_properties(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover
     };
     ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Type"), kind), Rect::new(frame.x + 16, frame.y + 70, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
     ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Size"), size), Rect::new(frame.x + 16, frame.y + 92, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
-    ui::label(canvas, &mut d.fonts, &format!("{}: {:04o}", tr("Permissions"), properties.mode), Rect::new(frame.x + 16, frame.y + 116, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
+    ui::label(canvas, &mut d.fonts, &format!("UID: {}    GID: {}", properties.uid, properties.gid), Rect::new(frame.x + 16, frame.y + 116, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
+    ui::label(canvas, &mut d.fonts, &format!("{}: {:04o}", tr("Permissions"), properties.mode), Rect::new(frame.x + 16, frame.y + 138, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
     for (column, label) in ["Read", "Write", "Execute"].iter().enumerate() {
-        ui::label(canvas, &mut d.fonts, tr(label), Rect::new(frame.x + 132 + column as i32 * 92, frame.y + 128, 84, 20), ui::FONT_SMALL, true, Align::Center, ui::text());
+        ui::label(canvas, &mut d.fonts, tr(label), Rect::new(frame.x + 132 + column as i32 * 92, frame.y + 158, 84, 20), ui::FONT_SMALL, true, Align::Center, ui::text());
     }
     for (row, label) in ["Owner", "Group", "Others"].iter().enumerate() {
-        ui::label(canvas, &mut d.fonts, tr(label), Rect::new(frame.x + 16, frame.y + 148 + row as i32 * 32, 108, 24), ui::FONT_SMALL, false, Align::Left, ui::text());
+        ui::label(canvas, &mut d.fonts, tr(label), Rect::new(frame.x + 16, frame.y + 178 + row as i32 * 32, 108, 24), ui::FONT_SMALL, false, Align::Left, ui::text());
     }
     for bit in 0..9 {
         let rect = property_bit_rect(frame, bit);
         let enabled = properties.mode & (1 << (8 - bit)) != 0;
-        canvas.stroke_rounded(rect, 4.0, 1.0, ui::separator());
+        let tint = if properties.can_modify { ui::separator() } else { ui::text_dim() };
+        canvas.stroke_rounded(rect, 4.0, 1.0, tint);
         if enabled {
-            ui::label(canvas, &mut d.fonts, "✓", rect, ui::FONT_SIZE, true, Align::Center, ui::accent());
+            ui::label(canvas, &mut d.fonts, "✓", rect, ui::FONT_SIZE, true, Align::Center, if properties.can_modify { ui::accent() } else { ui::text_dim() });
         }
-        if hover == Hit::Property(bit) {
+        if properties.can_modify && hover == Hit::Property(bit) {
             canvas.stroke_rounded(rect.inflate(2), 5.0, 1.0, ui::accent());
+        }
+    }
+    if properties.is_dir {
+        let recursive = property_recursive_rect(frame);
+        canvas.stroke_rounded(Rect::new(recursive.x, recursive.y + 2, 18, 18), 3.0, 1.0, if properties.can_modify { ui::separator() } else { ui::text_dim() });
+        if properties.recursive {
+            ui::label(canvas, &mut d.fonts, "✓", Rect::new(recursive.x, recursive.y + 1, 18, 18), ui::FONT_SMALL, true, Align::Center, if properties.can_modify { ui::accent() } else { ui::text_dim() });
+        }
+        ui::label(canvas, &mut d.fonts, "Apply to subfolders and files", Rect::new(recursive.x + 26, recursive.y, recursive.w - 26, 22), ui::FONT_SMALL, false, Align::Left, if properties.can_modify { ui::text() } else { ui::text_dim() });
+        if properties.can_modify && hover == Hit::Property(11) {
+            canvas.stroke_rounded(recursive.inflate(2), 4.0, 1.0, ui::accent());
         }
     }
     draw_button(canvas, d, cancel, tr("Cancel"), hover == Hit::Property(9), false);

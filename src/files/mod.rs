@@ -292,6 +292,15 @@ pub struct Properties {
     pub path: PathBuf,
     /// Unix permission bits (owner/group/other).
     pub mode: u32,
+    /// Numeric owner and group IDs.
+    pub uid: u32,
+    pub gid: u32,
+    /// Whether the current process may change this object's permissions.
+    pub can_modify: bool,
+    /// Whether the selected object is a directory.
+    pub is_dir: bool,
+    /// Apply the selected mode to descendants as well.
+    pub recursive: bool,
     /// File length or the sum of regular files below a directory.
     pub size: Option<u64>,
     /// Whether a directory's total size is still being calculated.
