@@ -331,12 +331,10 @@ pub enum DropTarget {
 /// An operation reported in the status bar.
 #[derive(Clone, Debug)]
 pub struct Progress {
-    /// Bytes transferred.
-    pub done: u64,
-    /// Bytes in total.
-    pub total: u64,
-    /// Whether the counters represent bytes rather than item counts.
-    pub by_bytes: bool,
+    /// Files done.
+    pub done: usize,
+    /// Files in total.
+    pub total: usize,
     /// The file being worked on.
     pub current: String,
 }
@@ -802,25 +800,7 @@ impl Manager {
                     if let Some(window_id) = self.operations.get(&id).copied()
                         && let Some(window) = self.window_mut(window_id)
                     {
-                        window.progress = Some((id, Progress {
-                            done: done as u64,
-                            total: total as u64,
-                            by_bytes: false,
-                            current,
-                        }));
-                        window.dirty = true;
-                    }
-                }
-                Message::TransferProgress { id, done, total, current } => {
-                    if let Some(window_id) = self.operations.get(&id).copied()
-                        && let Some(window) = self.window_mut(window_id)
-                    {
-                        window.progress = Some((id, Progress {
-                            done,
-                            total,
-                            by_bytes: true,
-                            current,
-                        }));
+                        window.progress = Some((id, Progress { done, total, current }));
                         window.dirty = true;
                     }
                 }

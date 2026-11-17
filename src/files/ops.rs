@@ -397,11 +397,10 @@ fn transfer(
     }
     // Empty directories and symlinks have no file payload to count.
     if total == 0 {
-        done = 1;
         send(Message::TransferProgress {
             id,
-            done,
-            total: 1,
+            done: 0,
+            total: 0,
             current,
         });
     }
@@ -475,6 +474,30 @@ fn copy_tree(
     }
     output.set_permissions(metadata.permissions())?;
     Ok(())
+}
+
+/// Counts the regular-file payload bytes below a path without following symlinks.
+fn total_bytes(path: &Path) -> u64 {
+    let Ok(metadata) = std::fs::symlink_metadata(path) else {
+        return 0;
+    };
+    if metadata.file_type().is_symlink() {
+        return 0;
+    }
+    if metadata.is_file() {
+        return metadata.len();
+    }
+    if metadata.is_dir() {
+        return std::fs::read_dir(path)
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .map(|entry| total_bytes(&entry.path()))
+                    .fold(0u64, u64::saturating_add)
+            })
+            .unwrap_or(0);
+    }
+    0
 }
 
 /// Counts the files under a path, directories themselves not counted.

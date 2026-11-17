@@ -3337,21 +3337,12 @@ fn draw_status(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, layout: &
     let (text, filter, progress_ratio) = {
         let w = &d.files.windows[index];
         let text = if let Some((_, progress)) = &w.progress {
-            let (done, total) = if progress.by_bytes {
-                (files::human_size(progress.done), files::human_size(progress.total))
-            } else {
-                (progress.done.to_string(), progress.total.to_string())
-            };
             trf(
-                if progress.by_bytes {
-                    "Copying {name} ({done} of {total})"
-                } else {
-                    "Processing {name} ({done} of {total})"
-                },
+                "Processing {name} ({done} of {total})",
                 &[
                     ("name", &progress.current),
-                    ("done", &done),
-                    ("total", &total),
+                    ("done", &(progress.done.saturating_add(1).min(progress.total).to_string())),
+                    ("total", &progress.total.to_string()),
                 ],
             )
         } else if w.loading {
@@ -3382,7 +3373,7 @@ fn draw_status(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, layout: &
         };
         let ratio = w.progress.as_ref().map(|(_, progress)| {
             if progress.total == 0 {
-                1.0
+                0.0
             } else {
                 (progress.done as f64 / progress.total as f64).clamp(0.0, 1.0)
             }
