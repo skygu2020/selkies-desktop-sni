@@ -490,8 +490,7 @@ impl State {
                 configured: false,
                 mapped: false,
                 redraw_pending: Arc::new(AtomicBool::new(false)),
-                redraw_pending: Arc::new(AtomicBool::new(false)),
-            input: Vec::new(),
+                input: Vec::new(),
             },
         });
     }
