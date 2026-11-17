@@ -605,14 +605,14 @@ mod tests {
         std::fs::write(dir.join("src/inner/f.txt"), b"hello").unwrap();
         std::fs::create_dir_all(dir.join("dest")).unwrap();
         let noop = |_: Message| {};
-        let errors = transfer(1, &[dir.join("src")], &dir.join("dest"), false, &noop);
+        let errors = transfer(1, &[dir.join("src")], &dir.join("dest"), false, &HashSet::new(), &noop);
         assert!(errors.is_empty());
         assert_eq!(std::fs::read(dir.join("dest/src/inner/f.txt")).unwrap(), b"hello");
-        let errors = transfer(2, &[dir.join("src")], &dir.join("dest"), true, &noop);
+        let errors = transfer(2, &[dir.join("src")], &dir.join("dest"), true, &HashSet::new(), &noop);
         assert!(errors.is_empty());
         assert!(dir.join("dest/src (2)/inner/f.txt").is_file());
         assert!(!dir.join("src").exists());
-        let errors = transfer(3, &[dir.join("dest")], &dir.join("dest/src"), false, &noop);
+        let errors = transfer(3, &[dir.join("dest")], &dir.join("dest/src"), false, &HashSet::new(), &noop);
         assert_eq!(errors.len(), 1);
         let _ = std::fs::remove_dir_all(dir);
     }
