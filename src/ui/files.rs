@@ -3066,10 +3066,10 @@ fn draw_grid(
         let line_h = 16;
         if selected || hover == Hit::Item(i) {
             let highlight = if selected { ui::accent_alpha(0x55) } else { ui::hover_bg() };
-            let width1 = ui::text_width(&mut d.fonts, &line1, ui::FONT_SMALL, false, scale).min(cell.w - 10);
+            let width1 = ((line1.width / scale as f32).ceil() as i32).min(cell.w - 10);
             canvas.fill_rounded(Rect::new(cell.x + (cell.w - width1 - 10) / 2, text_top - 1, width1 + 10, line_h + 2), 5.0, highlight);
             if let Some(second) = &line2 {
-                let width2 = ui::text_width(&mut d.fonts, second, ui::FONT_SMALL, false, scale).min(cell.w - 10);
+                let width2 = ((second.width / scale as f32).ceil() as i32).min(cell.w - 10);
                 canvas.fill_rounded(Rect::new(cell.x + (cell.w - width2 - 10) / 2, text_top + line_h - 1, width2 + 10, line_h + 2), 5.0, highlight);
             }
         }
