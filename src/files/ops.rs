@@ -63,6 +63,13 @@ pub enum Message {
         total: usize,
         current: String,
     },
+    /// A copy or move advanced, measured in bytes.
+    TransferProgress {
+        id: u64,
+        done: u64,
+        total: u64,
+        current: String,
+    },
     /// An operation finished, with what went wrong.
     Done { id: u64, errors: Vec<String> },
     /// A thumbnail was decoded, or could not be.
@@ -324,8 +331,15 @@ fn transfer(
     send: &dyn Fn(Message),
 ) -> Vec<String> {
     let mut errors = Vec::new();
-    let total: usize = sources.iter().map(|s| count_files(s)).sum::<usize>().max(1);
-    let mut done = 0usize;
+    let total = sources.iter().map(|source| total_bytes(source)).sum::<u64>();
+    let mut done = 0u64;
+    let mut current = String::new();
+    send(Message::TransferProgress {
+        id,
+        done,
+        total,
+        current: current.clone(),
+    });
     for source in sources {
         let Some(name) = source.file_name() else {
             continue;
@@ -352,23 +366,18 @@ fn transfer(
                 continue;
             }
         }
-        send(Message::Progress {
-            id,
-            done,
-            total,
-            current: file_name(source),
-        });
+        current = file_name(source);
         if moving && std::fs::rename(source, &target).is_ok() {
-            done += count_files(&target);
-            send(Message::Progress {
+            done = done.saturating_add(total_bytes(&target));
+            send(Message::TransferProgress {
                 id,
                 done,
                 total,
-                current: file_name(source),
+                current: current.clone(),
             });
             continue;
         }
-        if let Err(error) = copy_tree(source, &target, id, total, &mut done, send) {
+        if let Err(error) = copy_tree(source, &target, id, total, &mut done, &mut current, send) {
             errors.push(format!("{}: {error}", file_name(source)));
             continue;
         }
@@ -385,6 +394,16 @@ fn transfer(
                 ));
             }
         }
+    }
+    // Empty directories and symlinks have no file payload to count.
+    if total == 0 {
+        done = 1;
+        send(Message::TransferProgress {
+            id,
+            done,
+            total: 1,
+            current,
+        });
     }
     errors
 }
@@ -404,20 +423,21 @@ fn copy_tree(
     source: &Path,
     target: &Path,
     id: u64,
-    total: usize,
-    done: &mut usize,
+    total: u64,
+    done: &mut u64,
+    current: &mut String,
     send: &dyn Fn(Message),
 ) -> std::io::Result<()> {
     let metadata = std::fs::symlink_metadata(source)?;
+    *current = file_name(source);
     if metadata.file_type().is_symlink() {
         let link = std::fs::read_link(source)?;
         std::os::unix::fs::symlink(link, target)?;
-        *done += 1;
-        send(Message::Progress {
+        send(Message::TransferProgress {
             id,
             done: *done,
             total,
-            current: file_name(source),
+            current: current.clone(),
         });
         return Ok(());
     }
@@ -429,25 +449,31 @@ fn copy_tree(
             let Some(name) = entry.file_name() else {
                 continue;
             };
-            send(Message::Progress {
-                id,
-                done: *done,
-                total,
-                current: name.to_string_lossy().to_string(),
-            });
-            copy_tree(&entry, &target.join(name), id, total, done, send)?;
+            copy_tree(&entry, &target.join(name), id, total, done, current, send)?;
         }
         let _ = std::fs::set_permissions(target, metadata.permissions());
         return Ok(());
     }
-    std::fs::copy(source, target)?;
-    *done += 1;
-    send(Message::Progress {
-        id,
-        done: *done,
-        total,
-        current: file_name(source),
-    });
+
+    use std::io::{Read, Write};
+    let mut input = std::fs::File::open(source)?;
+    let mut output = std::fs::File::create(target)?;
+    let mut buffer = vec![0u8; 256 * 1024];
+    loop {
+        let count = input.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        output.write_all(&buffer[..count])?;
+        *done = done.saturating_add(count as u64);
+        send(Message::TransferProgress {
+            id,
+            done: *done,
+            total,
+            current: current.clone(),
+        });
+    }
+    output.set_permissions(metadata.permissions())?;
     Ok(())
 }
 
