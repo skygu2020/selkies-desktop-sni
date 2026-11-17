@@ -491,6 +491,12 @@ impl Desktop {
         }
         self.sync_panel(was_top, was_height, was_autohide);
         self.panel_dirty = true;
+        if key == "font_size" {
+            self.redraw_backgrounds();
+            for window in &mut self.files.windows {
+                window.dirty = true;
+            }
+        }
     }
 
     /// Icon size of the bar's items, grown with the bar.
@@ -667,6 +673,9 @@ impl Desktop {
         self.desktop_selection = None;
         self.panel_dirty = true;
         self.repaint_wallpapers();
+        for window in &mut self.files.windows {
+            window.dirty = true;
+        }
     }
 
     /// Reads the settings again and applies what changed on screen, without
@@ -685,6 +694,9 @@ impl Desktop {
         self.wallpapers.retain(|_, image| image.is_some());
         self.repaint_wallpapers();
         self.panel_dirty = true;
+        for window in &mut self.files.windows {
+            window.dirty = true;
+        }
     }
 
     /// A wallpaper image at its native size, decoded once per path.
