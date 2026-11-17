@@ -143,7 +143,7 @@ pub fn draw_launchers(d: &mut Desktop, id: u32, canvas: &mut Canvas<'_>) {
     }
 
     let scale = canvas.scale() as f32;
-    let font_px = ui::FONT_SMALL * scale;
+    let font_px = ui::FONT_SIZE * scale;
     for index in 0..d.apps.desktop.len() {
         let cell = cell_rect(d, index);
         let selected = d.desktop_selection == Some(index);

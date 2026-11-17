@@ -34,7 +34,7 @@ pub const POPUP_AREA_HEIGHT: i32 = 620;
 /// Base font size of the UI.
 pub const FONT_SIZE: f32 = 13.0;
 /// Small font size for secondary text.
-pub const FONT_SMALL: f32 = 11.5;
+pub const FONT_SMALL: f32 = 12.0;
 /// Pixels one wheel step scrolls a list.
 pub const SCROLL_STEP: f64 = 48.0;
 /// Milliseconds a second click may follow the first to count as a double click.

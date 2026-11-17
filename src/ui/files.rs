@@ -3001,7 +3001,7 @@ fn draw_grid(
         .filter(|c| c.cut)
         .map(|c| c.paths.clone())
         .unwrap_or_default();
-    let font_px = ui::FONT_SMALL * scale as f32;
+    let font_px = ui::FONT_SIZE * scale as f32;
     for i in 0..count {
         let cell = cell_rect(content, i);
         let cell = Rect::new(cell.x, cell.y - scroll, cell.w, cell.h);
