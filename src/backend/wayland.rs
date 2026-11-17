@@ -1942,8 +1942,12 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for State {
             } => {
                 if key_state == WEnum::Value(wl_keyboard::KeyState::Pressed) {
                     if let Some(surface) = state.keyboard_surface
-                        && let Some(translated) = state
-                            .translate_key(key, &state.keymap, state.modifiers.shift, state.caps_lock)
+                        && let Some(translated) = translate_key(
+                            key,
+                            &state.keymap,
+                            state.modifiers.shift,
+                            state.caps_lock,
+                        )
                     {
                         state.events.push(Event::Key {
                             surface,
