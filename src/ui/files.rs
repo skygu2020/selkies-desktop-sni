@@ -782,8 +782,9 @@ pub fn pointer_motion(d: &mut Desktop, id: u32, x: f64, y: f64) {
                 drag.current_x = x;
                 drag.current_y = y;
                 let rect = selection_rect(drag);
+                let initial = drag.initial.clone();
                 let content = layout(w).content;
-                w.selection = drag.initial.clone();
+                w.selection = initial;
                 for i in 0..w.items.len() {
                     let mut bounds = item_rect(w, content, i);
                     bounds.y -= w.scroll as i32;
