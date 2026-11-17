@@ -243,6 +243,30 @@ struct State {
     drag_offer: Option<(wl_data_offer::WlDataOffer, SurfaceId, bool, (f64, f64))>,
 }
 
+/// Translates a Wayland evdev keycode through the compositor keymap.
+///
+/// Some compositor/keymap combinations expose physical function-row keys
+/// as number-row symbols. Preserve the physical F-key identity in that case;
+/// ordinary number-row keycodes still use the compositor keymap unchanged.
+fn translate_key(
+    keycode: u32,
+    keymap: &Keymap,
+    shift: bool,
+    caps_lock: bool,
+) -> Option<crate::xkb::Key> {
+    let mapped = keymap.translate(keycode + 8, shift, caps_lock);
+    if matches!(mapped, Some(crate::xkb::Key::Function(_))) {
+        return mapped;
+    }
+    let function = match keycode {
+        59..=68 => Some((keycode - 58) as u8),
+        87 => Some(11),
+        88 => Some(12),
+        _ => None,
+    };
+    function.map(crate::xkb::Key::Function).or(mapped)
+}
+
 impl State {
     /// The surface a Wayland surface object stands for; an output's launchers
     /// layer stands for its background.
@@ -1919,8 +1943,7 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for State {
                 if key_state == WEnum::Value(wl_keyboard::KeyState::Pressed) {
                     if let Some(surface) = state.keyboard_surface
                         && let Some(translated) = state
-                            .keymap
-                            .translate(key + 8, state.modifiers.shift, state.caps_lock)
+                            .translate_key(key, &state.keymap, state.modifiers.shift, state.caps_lock)
                     {
                         state.events.push(Event::Key {
                             surface,
@@ -2051,3 +2074,20 @@ delegate_noop!(State: ignore xdg_toplevel_icon_manager_v1::XdgToplevelIconManage
 delegate_noop!(State: ignore xdg_toplevel_icon_v1::XdgToplevelIconV1);
 delegate_noop!(State: ignore zxdg_toplevel_decoration_v1::ZxdgToplevelDecorationV1);
 delegate_noop!(State: ignore wl_data_device_manager::WlDataDeviceManager);
+#[cfg(test)]
+mod keyboard_translation_tests {
+    use super::*;
+
+    #[test]
+    fn f2_is_not_mistaken_for_the_number_one_key() {
+        let keymap = Keymap::from_x11(10, 1, &[u32::from(b'1')]);
+        assert_eq!(
+            translate_key(60, &keymap, false, false),
+            Some(crate::xkb::Key::Function(2)),
+        );
+        assert_eq!(
+            translate_key(2, &keymap, false, false),
+            Some(crate::xkb::Key::Char('1')),
+        );
+    }
+}
