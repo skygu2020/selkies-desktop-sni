@@ -15,7 +15,7 @@ use crate::entries;
 use crate::event::{Button, Modifiers, Request};
 use crate::files::{
     self, Clipboard, Confirm, ContextMenu, DropTarget, FilesWindow, Item, MenuAction, MenuRow, PickTarget,
-    Picker, Press, Properties, Rename, ScrollArea, SortKey, TransferConfirm, View,
+    Picker, Press, Properties, Rename, ScrollArea, SelectionDrag, SortKey, TransferConfirm, View,
 };
 use crate::geom::Rect;
 use crate::i18n::{tr, trf};
@@ -279,6 +279,18 @@ fn item_rect(w: &FilesWindow, content: Rect, index: usize) -> Rect {
         View::Icons => cell_rect(content, index),
         View::List => row_rect(content, index),
     }
+}
+
+fn selection_rect(drag: &SelectionDrag) -> Rect {
+    let x = drag.start_x.min(drag.current_x) as i32;
+    let y = drag.start_y.min(drag.current_y) as i32;
+    let right = drag.start_x.max(drag.current_x) as i32;
+    let bottom = drag.start_y.max(drag.current_y) as i32;
+    Rect::new(x, y, right - x, bottom - y)
+}
+
+fn rects_intersect(a: Rect, b: Rect) -> bool {
+    a.x < b.right() && a.right() > b.x && a.y < b.bottom() && a.bottom() > b.y
 }
 
 /// The editable name field for an item being renamed.
@@ -759,11 +771,25 @@ pub fn pointer_motion(d: &mut Desktop, id: u32, x: f64, y: f64) {
     if let Some(press) = d.files.window(id).and_then(|w| w.press) {
         let moved = (x - press.x).abs() > DRAG_THRESHOLD || (y - press.y).abs() > DRAG_THRESHOLD;
         if moved {
-            if let Some(w) = d.files.window_mut(id) {
-                w.press = None;
-            }
             if let Some(item) = press.item {
+                if let Some(w) = d.files.window_mut(id) { w.press = None; }
                 start_drag(d, id, item);
+                return;
+            }
+            if let Some(w) = d.files.window_mut(id)
+                && let Some(drag) = w.selection_drag.as_mut()
+            {
+                drag.current_x = x;
+                drag.current_y = y;
+                let rect = selection_rect(drag);
+                let content = layout(w).content;
+                w.selection = drag.initial.clone();
+                for i in 0..w.items.len() {
+                    let mut bounds = item_rect(w, content, i);
+                    bounds.y -= w.scroll as i32;
+                    if rects_intersect(rect, bounds.inflate(-4)) { w.selection.insert(i); }
+                }
+                w.dirty = true;
                 return;
             }
         }
@@ -862,7 +888,10 @@ pub fn pointer_button(
     modifiers: Modifiers,
 ) {
     if !pressed {
-        if button == Button::Left && let Some(w) = d.files.window_mut(id) { w.path_selecting = false; }
+        if button == Button::Left && let Some(w) = d.files.window_mut(id) {
+            w.path_selecting = false;
+            w.selection_drag = None;
+        }
         if button == Button::Left && let Some(rename) = d.files.window_mut(id).and_then(|w| w.rename.as_mut()) { rename.selecting = false; }
         if button == Button::Left
             && let Some(w) = d.files.window_mut(id)
@@ -884,6 +913,9 @@ pub fn pointer_button(
             w.selection.insert(item);
             w.cursor = Some(item);
             w.dirty = true;
+        }
+        if button == Button::Left && let Some(w) = d.files.window_mut(id) {
+            w.press = None;
         }
         return;
     }
@@ -1156,6 +1188,10 @@ pub fn pointer_button(
                     y,
                     item: None,
                     was_selected: false,
+                });
+                w.selection_drag = Some(SelectionDrag {
+                    start_x: x, start_y: y, current_x: x, current_y: y,
+                    initial: w.selection.clone(),
                 });
             }
             Hit::Scrollbar(area) => {
@@ -2578,8 +2614,7 @@ fn system_clipboard(write: Option<&str>) -> Option<String> {
 
 /// Draws the location field, including its text selection and insertion caret.
 fn draw_path_field(canvas: &mut Canvas<'_>, d: &mut Desktop, rect: Rect, text: &str, cursor: usize, anchor: Option<usize>, scale: i32) {
-    canvas.fill_rounded(rect, 5.0, ui::field_bg());
-    canvas.stroke_rounded(rect, 5.0, 1.0, ui::accent());
+    canvas.fill_rounded(rect, 4.0, ui::field_bg());
     let inner = Rect::new(rect.x + 8, rect.y, rect.w - 16, rect.h);
     let chars: Vec<char> = text.chars().collect();
     let cursor = cursor.min(chars.len());
@@ -2981,13 +3016,9 @@ fn draw_grid(
             )
         };
         let cut = cut_paths.contains(&item.path);
-        let (fill, border) = item_background(selected, hover == Hit::Item(i), drop);
-        let inner = cell.inflate(-4);
-        if let Some(fill) = fill {
-            canvas.fill_rounded(inner, 8.0, fill);
-        }
-        if let Some(border) = border {
-            canvas.stroke_rounded(inner, 8.0, 1.0, border);
+        if drop {
+            canvas.fill_rounded(cell.inflate(-4), 8.0, ui::accent_alpha(0x40));
+            canvas.stroke_rounded(cell.inflate(-4), 8.0, 1.0, ui::accent());
         }
         let icon_rect = Rect::new(
             cell.x + (cell.w - GRID_ICON) / 2,
@@ -3032,6 +3063,15 @@ fn draw_grid(
         let max_width = (cell.w - 10) as f32 * scale as f32;
         let (line1, line2) = ui::wrap_two_lines(&mut d.fonts, &item.name, font_px, max_width);
         let line_h = 16;
+        if selected || hover == Hit::Item(i) {
+            let highlight = if selected { ui::accent_alpha(0x55) } else { ui::hover_bg() };
+            let width1 = ui::text_width(&mut d.fonts, &line1, ui::FONT_SMALL, false, scale).min(cell.w - 10);
+            canvas.fill_rounded(Rect::new(cell.x + (cell.w - width1 - 10) / 2, text_top - 1, width1 + 10, line_h + 2), 5.0, highlight);
+            if let Some(second) = &line2 {
+                let width2 = ui::text_width(&mut d.fonts, second, ui::FONT_SMALL, false, scale).min(cell.w - 10);
+                canvas.fill_rounded(Rect::new(cell.x + (cell.w - width2 - 10) / 2, text_top + line_h - 1, width2 + 10, line_h + 2), 5.0, highlight);
+            }
+        }
         canvas.draw_text(
             &mut d.fonts,
             &line1,
@@ -3051,6 +3091,13 @@ fn draw_grid(
                 Align::Center,
                 color,
             );
+        }
+    }
+    if let Some(drag) = d.files.windows[index].selection_drag.as_ref() {
+        let rect = selection_rect(drag);
+        if rect.w > 2 && rect.h > 2 {
+            canvas.fill_rect(rect, ui::accent_alpha(0x20));
+            canvas.stroke_rounded(rect, 2.0, 1.0, ui::accent_alpha(0xb0));
         }
     }
     canvas.reset_clip();
@@ -3134,13 +3181,10 @@ fn draw_list(
             )
         };
         let cut = cut_paths.contains(&item.path);
-        let (fill, border) = item_background(selected, hover == Hit::Item(i), drop);
-        let inner = Rect::new(row.x + 4, row.y + 1, row.w - 8, row.h - 2);
-        if let Some(fill) = fill {
-            canvas.fill_rounded(inner, 5.0, fill);
-        }
-        if let Some(border) = border {
-            canvas.stroke_rounded(inner, 5.0, 1.0, border);
+        if drop {
+            let inner = Rect::new(row.x + 4, row.y + 1, row.w - 8, row.h - 2);
+            canvas.fill_rounded(inner, 5.0, ui::accent_alpha(0x40));
+            canvas.stroke_rounded(inner, 5.0, 1.0, ui::accent());
         }
         let color = if cut { ui::text_dim() } else { ui::text() };
         for (key, col) in &cols {
@@ -3171,6 +3215,15 @@ fn draw_list(
                             *caret_visible,
                         );
                     } else {
+                        if selected || hover == Hit::Item(i) {
+                            let width = ui::text_width(&mut d.fonts, &item.name, ui::FONT_SIZE, false, scale)
+                                .min((name_rect.w - 8).max(0));
+                            canvas.fill_rounded(
+                                Rect::new(name_rect.x - 3, name_rect.y + 4, width + 8, name_rect.h - 8),
+                                4.0,
+                                if selected { ui::accent_alpha(0x55) } else { ui::hover_bg() },
+                            );
+                        }
                         ui::label(
                             canvas,
                             &mut d.fonts,
@@ -3234,6 +3287,13 @@ fn draw_list(
                     );
                 }
             }
+        }
+    }
+    if let Some(drag) = d.files.windows[index].selection_drag.as_ref() {
+        let rect = selection_rect(drag);
+        if rect.w > 2 && rect.h > 2 {
+            canvas.fill_rect(rect, ui::accent_alpha(0x20));
+            canvas.stroke_rounded(rect, 2.0, 1.0, ui::accent_alpha(0xb0));
         }
     }
     canvas.reset_clip();

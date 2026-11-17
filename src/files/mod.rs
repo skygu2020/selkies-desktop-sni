@@ -165,6 +165,16 @@ pub struct Press {
     pub was_selected: bool,
 }
 
+/// A drag-selection rectangle in the file listing.
+#[derive(Clone, Debug)]
+pub struct SelectionDrag {
+    pub start_x: f64,
+    pub start_y: f64,
+    pub current_x: f64,
+    pub current_y: f64,
+    pub initial: HashSet<usize>,
+}
+
 /// An area of a window that scrolls on its own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScrollArea {
@@ -373,6 +383,8 @@ pub struct FilesWindow {
     pub loading: bool,
     /// A press waiting to become a click or a drag.
     pub press: Option<Press>,
+    /// A rectangular selection gesture in the listing.
+    pub selection_drag: Option<SelectionDrag>,
     /// The rename in progress.
     pub rename: Option<Rename>,
     /// The open context menu.
@@ -593,6 +605,7 @@ impl Manager {
             scan_generation: 0,
             loading: true,
             press: None,
+            selection_drag: None,
             rename: None,
             menu: None,
             confirm: None,
