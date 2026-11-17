@@ -64,6 +64,7 @@ const BTN_MIDDLE: u32 = 0x112;
 struct BufferReleaseData {
     busy: Arc<AtomicBool>,
     surface: Option<SurfaceId>,
+    redraw_pending: Arc<AtomicBool>,
 }
 
 /// A shared memory buffer with the mapping the frame is copied into.
@@ -146,6 +147,8 @@ struct Surface {
     /// Whether a buffer was attached, so a bare commit keeps the surface
     /// mapped rather than counting as another initial commit.
     mapped: bool,
+    /// Set when a frame could not be submitted because all buffers were busy.
+    redraw_pending: Arc<AtomicBool>,
     /// The input rectangles of the last frame, restored after a drag.
     input: Vec<Rect>,
 }
@@ -486,7 +489,9 @@ impl State {
                 scale,
                 configured: false,
                 mapped: false,
-                input: Vec::new(),
+                redraw_pending: Arc::new(AtomicBool::new(false)),
+                redraw_pending: Arc::new(AtomicBool::new(false)),
+            input: Vec::new(),
             },
         });
     }
@@ -702,6 +707,7 @@ impl State {
             scale: output.scale,
             configured: false,
             mapped: false,
+            redraw_pending: Arc::new(AtomicBool::new(false)),
             input: Vec::new(),
         });
         let wl = compositor.create_surface(qh, ());
@@ -731,6 +737,7 @@ impl State {
             scale: output.scale,
             configured: false,
             mapped: false,
+            redraw_pending: Arc::new(AtomicBool::new(false)),
             input: Vec::new(),
         });
     }
@@ -995,6 +1002,7 @@ impl WaylandBackend {
             scale: 1,
             configured: false,
             mapped: false,
+            redraw_pending: Arc::new(AtomicBool::new(false)),
             input: Vec::new(),
         });
 
@@ -1029,8 +1037,8 @@ impl WaylandBackend {
             return Some(index);
         }
         if surface.buffers.len() >= 3 {
-            // Never overwrite a buffer still owned by the compositor. Its
-            // release event schedules another render for file-manager windows.
+            // Never overwrite a buffer still owned by the compositor.
+            surface.redraw_pending.store(true, Ordering::Release);
             return None;
         }
         let size = width as usize * height as usize * 4;
@@ -1051,6 +1059,7 @@ impl WaylandBackend {
                     Target::Surface(surface @ SurfaceId::Window(_)) => Some(surface),
                     _ => None,
                 },
+                redraw_pending: surface.redraw_pending.clone(),
             },
         );
         surface.buffers.push(ShmBuffer {
@@ -1098,7 +1107,11 @@ fn single_buffer(
         width * 4,
         wl_shm::Format::Argb8888,
         qh,
-        BufferReleaseData { busy: busy.clone(), surface: None },
+        BufferReleaseData {
+            busy: busy.clone(),
+            surface: None,
+            redraw_pending: Arc::new(AtomicBool::new(false)),
+        },
     );
     Some(ShmBuffer {
         pool,
@@ -2008,7 +2021,9 @@ impl Dispatch<wl_buffer::WlBuffer, BufferReleaseData> for State {
     ) {
         if let wl_buffer::Event::Release = event {
             data.busy.store(false, Ordering::Release);
-            if let Some(surface) = data.surface {
+            if data.redraw_pending.swap(false, Ordering::AcqRel)
+                && let Some(surface) = data.surface
+            {
                 state.events.push(Event::BufferReleased { surface });
             }
         }
