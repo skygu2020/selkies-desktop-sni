@@ -2342,7 +2342,7 @@ pub fn drop_into(d: &mut Desktop, window: u32, paths: Vec<PathBuf>, dest: PathBu
     } else {
         d.files.ids().first().copied().unwrap_or(window)
     };
-    d.files.transfer(reporter, paths, dest, !copy);
+    d.files.transfer(reporter, paths, dest, !copy, HashSet::new());
 }
 
 /// The themed icon of an item at a logical size: the folder icon of its
