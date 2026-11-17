@@ -466,6 +466,13 @@ pub fn hit(d: &mut Desktop, id: u32, x: f64, y: f64) -> Hit {
         return Hit::None;
     };
     let layout = layout(&d.files.windows[index]);
+    if d.files.windows[index].transfer_confirm.is_some() {
+        let (_, buttons) = transfer_confirm_rects(&d.files.windows[index]);
+        for (i, rect) in buttons.iter().enumerate() {
+            if rect.contains(x, y) { return Hit::TransferConfirm(i); }
+        }
+        return Hit::None;
+    }
     if layout.path.contains(x, y) && d.files.windows[index].path_edit.is_some() { return Hit::PathField; }
     if layout.path.contains(x, y) && d.files.windows[index].path_edit.is_none() {
         let dir = d.files.windows[index].dir.clone();
@@ -505,13 +512,6 @@ pub fn hit(d: &mut Desktop, id: u32, x: f64, y: f64) -> Hit {
             if property_bit_rect(frame, bit).contains(x, y) {
                 return Hit::Property(bit);
             }
-        }
-        return Hit::None;
-    }
-    if w.transfer_confirm.is_some() {
-        let (_, buttons) = transfer_confirm_rects(w);
-        for (i, rect) in buttons.iter().enumerate() {
-            if rect.contains(x, y) { return Hit::TransferConfirm(i); }
         }
         return Hit::None;
     }
