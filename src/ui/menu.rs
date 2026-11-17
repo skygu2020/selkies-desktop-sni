@@ -729,7 +729,7 @@ pub fn key(d: &mut Desktop, key: Key) {
                 }
             }
         }
-        Key::Tab | Key::Delete | Key::Escape | Key::Super | Key::Function(_) => {}
+        Key::Tab | Key::Delete | Key::Escape | Key::Super | Key::PrintScreen | Key::Function(_) => {}
     }
     d.redraw_panel();
 }

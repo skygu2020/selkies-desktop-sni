@@ -2350,7 +2350,7 @@ pub fn key(d: &mut Desktop, id: u32, key: Key, modifiers: Modifiers) {
             w.cursor = Some(next);
             scroll_to(w, next);
         }
-        Key::Tab | Key::Super | Key::Function(_) => {}
+        Key::Tab | Key::Super | Key::PrintScreen | Key::Function(_) => {}
     }
 }
 
