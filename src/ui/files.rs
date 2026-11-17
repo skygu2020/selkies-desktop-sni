@@ -3,6 +3,7 @@
 //! bar, and the context menu, rename field and confirmation that open inside
 //! it.  Every window is a toplevel the window manager places and decorates.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Instant;
@@ -14,7 +15,7 @@ use crate::entries;
 use crate::event::{Button, Modifiers, Request};
 use crate::files::{
     self, Clipboard, Confirm, ContextMenu, DropTarget, FilesWindow, Item, MenuAction, MenuRow, PickTarget,
-    Picker, Press, Properties, Rename, ScrollArea, SortKey, View,
+    Picker, Press, Properties, Rename, ScrollArea, SortKey, TransferConfirm, View,
 };
 use crate::geom::Rect;
 use crate::i18n::{tr, trf};
@@ -100,6 +101,8 @@ pub enum Hit {
     SubmenuRow(usize),
     /// A confirmation button: cancel, then delete.
     Confirm(usize),
+    /// Paste conflict buttons: cancel, rename, replace, replace all.
+    TransferConfirm(usize),
     /// A properties dialog control: permission bit, cancel (9), apply (10).
     Property(usize),
     /// A picker footer button: cancel, then open.
@@ -431,6 +434,19 @@ fn confirm_rects(w: &FilesWindow) -> (Rect, Rect, Rect) {
     (bx, cancel, delete)
 }
 
+/// Geometry for the paste-conflict prompt: cancel, rename, replace, replace all.
+fn transfer_confirm_rects(w: &FilesWindow) -> (Rect, [Rect; 4]) {
+    let frame = Rect::new(0, 0, w.geometry.width, w.geometry.height);
+    let width = 460.min(frame.w - 20);
+    let bx = Rect::new((frame.w - width) / 2, (frame.h - 154) / 2, width, 154);
+    let button_w = 96;
+    let gap = 6;
+    let total = button_w * 4 + gap * 3;
+    let left = bx.x + (bx.w - total) / 2;
+    let y = bx.bottom() - 16 - 30;
+    (bx, std::array::from_fn(|i| Rect::new(left + i as i32 * (button_w + gap), y, button_w, 30)))
+}
+
 /// The picker footer's two buttons.
 fn footer_buttons(footer: Rect) -> (Rect, Rect) {
     let open = Rect::new(footer.right() - PAD - 96, footer.y + (footer.h - 32) / 2, 96, 32);
@@ -489,6 +505,13 @@ pub fn hit(d: &mut Desktop, id: u32, x: f64, y: f64) -> Hit {
             if property_bit_rect(frame, bit).contains(x, y) {
                 return Hit::Property(bit);
             }
+        }
+        return Hit::None;
+    }
+    if w.transfer_confirm.is_some() {
+        let (_, buttons) = transfer_confirm_rects(w);
+        for (i, rect) in buttons.iter().enumerate() {
+            if rect.contains(x, y) { return Hit::TransferConfirm(i); }
         }
         return Hit::None;
     }
@@ -922,6 +945,15 @@ pub fn pointer_button(
         update_hover(d, id, x, y);
         return;
     }
+    if w.transfer_confirm.is_some() {
+        if let Hit::TransferConfirm(which) = hit
+            && button == Button::Left
+        {
+            resolve_transfer_conflict(d, id, which);
+        }
+        update_hover(d, id, x, y);
+        return;
+    }
     if w.confirm.is_some() {
         if let Hit::Confirm(which) = hit
             && button == Button::Left
@@ -1103,7 +1135,7 @@ pub fn pointer_button(
                     }
                 }
             }
-            Hit::MenuRow(_) | Hit::SubmenuRow(_) | Hit::Confirm(_) | Hit::Property(_) | Hit::None => {}
+            Hit::MenuRow(_) | Hit::SubmenuRow(_) | Hit::Confirm(_) | Hit::TransferConfirm(_) | Hit::Property(_) | Hit::None => {}
         },
         Button::Right => match hit {
             Hit::Item(i) => {
@@ -1655,17 +1687,83 @@ fn perform(d: &mut Desktop, id: u32, action: MenuAction) {
     }
 }
 
-/// Pastes the clipboard into a folder; a cut is a move and empties the clipboard.
+/// Pastes the clipboard into a folder, asking before replacing existing names.
 fn paste(d: &mut Desktop, id: u32, dest: PathBuf) {
     let Some(clipboard) = d.files.clipboard.clone() else {
         return;
     };
-    d.files.transfer(id, clipboard.paths.clone(), dest, clipboard.cut);
-    if clipboard.cut {
+    let conflicts: Vec<PathBuf> = clipboard.paths.iter().filter(|source| {
+        if clipboard.cut && source.parent() == Some(dest.as_path()) {
+            return false;
+        }
+        source.file_name().is_some_and(|name| {
+            let target = dest.join(name);
+            target.exists() || target.is_symlink()
+        })
+    }).cloned().collect();
+    if !conflicts.is_empty() {
+        if let Some(w) = d.files.window_mut(id) {
+            w.transfer_confirm = Some(TransferConfirm {
+                sources: clipboard.paths,
+                dest,
+                moving: clipboard.cut,
+                replace: HashSet::new(),
+                conflicts,
+                index: 0,
+            });
+            w.dirty = true;
+        }
+        return;
+    }
+    start_transfer(d, id, clipboard.paths, dest, clipboard.cut, HashSet::new());
+}
+
+/// Starts the transfer after the user has resolved any name conflicts.
+fn start_transfer(
+    d: &mut Desktop,
+    id: u32,
+    sources: Vec<PathBuf>,
+    dest: PathBuf,
+    moving: bool,
+    replace: HashSet<PathBuf>,
+) {
+    d.files.transfer(id, sources, dest, moving, replace);
+    if moving {
         d.files.clipboard = None;
         for window in &mut d.files.windows {
             window.dirty = true;
         }
+    }
+}
+
+/// Applies one paste-conflict choice and advances to the next conflicting item.
+fn resolve_transfer_conflict(d: &mut Desktop, id: u32, choice: usize) {
+    let Some(mut pending) = d.files.window_mut(id).and_then(|w| w.transfer_confirm.take()) else {
+        return;
+    };
+    match choice {
+        0 => {
+            if let Some(w) = d.files.window_mut(id) { w.dirty = true; }
+            return;
+        }
+        1 => {}
+        2 => {
+            if let Some(source) = pending.conflicts.get(pending.index) {
+                pending.replace.insert(source.clone());
+            }
+        }
+        3 => {
+            pending.replace.extend(pending.conflicts.iter().cloned());
+            pending.index = pending.conflicts.len();
+        }
+        _ => {}
+    }
+    pending.index += usize::from(choice == 1 || choice == 2);
+    if pending.index >= pending.conflicts.len() {
+        start_transfer(d, id, pending.sources, pending.dest, pending.moving, pending.replace);
+    } else if let Some(w) = d.files.window_mut(id) {
+        w.transfer_confirm = Some(pending);
+        w.dirty = true;
     }
 }
 
@@ -1861,6 +1959,18 @@ pub fn key(d: &mut Desktop, id: u32, key: Key, modifiers: Modifiers) {
     if w.properties.is_some() {
         if key == Key::Escape {
             w.properties = None;
+        }
+        return;
+    }
+    if w.transfer_confirm.is_some() {
+        match key {
+            Key::Enter => resolve_transfer_conflict(d, id, 1),
+            Key::Escape => {
+                if let Some(w) = d.files.window_mut(id) {
+                    w.transfer_confirm = None;
+                }
+            }
+            _ => {}
         }
         return;
     }
@@ -2566,6 +2676,9 @@ pub fn draw(d: &mut Desktop, id: u32, canvas: &mut Canvas<'_>) {
     }
     if d.files.windows[index].properties.is_some() {
         draw_properties(d, index, canvas, hover);
+    }
+    if d.files.windows[index].transfer_confirm.is_some() {
+        draw_transfer_confirm(d, index, canvas, &layout, hover);
     }
     if d.files.windows[index].confirm.is_some() {
         draw_confirm(d, index, canvas, &layout, hover);
@@ -3274,6 +3387,29 @@ fn draw_properties(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover
     }
     draw_button(canvas, d, cancel, tr("Cancel"), hover == Hit::Property(9), false);
     draw_button(canvas, d, apply, tr("Apply"), hover == Hit::Property(10), true);
+}
+
+/// Draws the paste-conflict prompt.
+fn draw_transfer_confirm(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, layout: &Layout, hover: Hit) {
+    let pending = d.files.windows[index].transfer_confirm.clone().unwrap();
+    let (frame, buttons) = transfer_confirm_rects(&d.files.windows[index]);
+    canvas.fill_rect(layout.frame, rgba(0, 0, 0, 0x70));
+    ui::draw_popup_frame(canvas, frame);
+    let source = pending.conflicts.get(pending.index).map(|p| files::ops::file_name(p)).unwrap_or_default();
+    let title = tr("A file with this name already exists");
+    ui::label(canvas, &mut d.fonts, title, Rect::new(frame.x + 16, frame.y + 14, frame.w - 32, 26), ui::FONT_SIZE + 1.0, true, Align::Left, ui::text());
+    ui::label(canvas, &mut d.fonts, &source, Rect::new(frame.x + 16, frame.y + 46, frame.w - 32, 24), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
+    let detail = trf("{current} of {total} conflicts", &[
+        ("current", &(pending.index + 1).to_string()),
+        ("total", &pending.conflicts.len().to_string()),
+    ]);
+    ui::label(canvas, &mut d.fonts, &detail, Rect::new(frame.x + 16, frame.y + 72, frame.w - 32, 20), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
+    draw_button(canvas, d, buttons[0], tr("Cancel"), hover == Hit::TransferConfirm(0), false);
+    draw_button(canvas, d, buttons[1], tr("Rename"), hover == Hit::TransferConfirm(1), false);
+    draw_button(canvas, d, buttons[2], tr("Replace"), hover == Hit::TransferConfirm(2), true);
+    if pending.conflicts.len() > 1 {
+        draw_button(canvas, d, buttons[3], tr("Replace all"), hover == Hit::TransferConfirm(3), true);
+    }
 }
 
 /// Draws the deletion confirmation over the content.
