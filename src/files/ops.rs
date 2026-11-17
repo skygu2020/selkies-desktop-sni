@@ -313,8 +313,8 @@ fn decode_thumbnail(key: &ThumbKey) -> Option<Pixmap> {
     crate::render::pixmap_from_rgba(nw, nh, scaled.as_raw())
 }
 
-/// Copies or moves the sources into a directory, naming a copy placed next
-/// to its original and never overwriting what is already there.
+/// Copies or moves sources into a directory, replacing only paths explicitly
+/// approved by the user and otherwise choosing a unique destination name.
 fn transfer(
     id: u64,
     sources: &[PathBuf],
@@ -594,6 +594,23 @@ mod tests {
         assert_eq!(unique_name(&dir, "a.txt", false), dir.join("a (2).txt"));
         std::fs::write(dir.join("a (2).txt"), b"").unwrap();
         assert_eq!(unique_name(&dir, "a.txt", false), dir.join("a (3).txt"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn explicit_replacement_overwrites_the_existing_destination() {
+        let dir = std::env::temp_dir().join(format!("selkies-files-replace-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::create_dir_all(dir.join("dest")).unwrap();
+        let source = dir.join("src/data.txt");
+        std::fs::write(&source, b"new contents").unwrap();
+        std::fs::write(dir.join("dest/data.txt"), b"old contents").unwrap();
+        let replace = HashSet::from([source.clone()]);
+        let noop = |_: Message| {};
+        let errors = transfer(1, &[source], &dir.join("dest"), false, &replace, &noop);
+        assert!(errors.is_empty());
+        assert_eq!(std::fs::read(dir.join("dest/data.txt")).unwrap(), b"new contents");
         let _ = std::fs::remove_dir_all(dir);
     }
 
