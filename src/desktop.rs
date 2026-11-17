@@ -1649,6 +1649,7 @@ impl Desktop {
     /// Routes a key press to the open popup.
     fn key(&mut self, key: Key) {
         match key {
+            Key::PrintScreen => self.requests.push(Request::Screenshot),
             Key::Super => self.toggle_menu(),
             Key::Escape => {
                 if self.popup != Popup::Settings || !settings::escape(self) {

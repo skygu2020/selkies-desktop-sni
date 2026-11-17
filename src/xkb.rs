@@ -43,6 +43,8 @@ pub enum Key {
     Home,
     /// End.
     End,
+    /// The Print Screen key, which launches the screenshot selector.
+    PrintScreen,
     /// The Super key, which toggles the menu.
     Super,
     /// A function key, by number.
@@ -263,6 +265,7 @@ fn special_key(sym: Keysym) -> Option<Key> {
         Keysym::Page_Down | Keysym::KP_Page_Down => Key::PageDown,
         Keysym::Home | Keysym::KP_Home => Key::Home,
         Keysym::End | Keysym::KP_End => Key::End,
+        Keysym::Print => Key::PrintScreen,
         Keysym::Super_L | Keysym::Super_R => Key::Super,
         Keysym::F1 => Key::Function(1),
         Keysym::F2 => Key::Function(2),
@@ -332,6 +335,7 @@ xkb_symbols "pc+us" {
     fn resolves_names() {
         assert_eq!(keysym_from_name("a"), Some(0x61));
         assert_eq!(keysym_from_name("BackSpace"), Some(0xff08));
+        assert_eq!(special_key(Keysym::Print), Some(Key::PrintScreen));
         assert_eq!(keysym_from_name("U00E9"), Some(0x10000e9));
         assert_eq!(keysym_from_name("NoSymbol"), None);
         assert_eq!(keysym_from_name("Cyrillic_a"), Some(0x6c1));

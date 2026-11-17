@@ -60,8 +60,6 @@ pub struct Layout {
     pub volume: Option<Rect>,
     /// The clock, when shown.
     pub clock: Option<Rect>,
-    /// The screenshot button, when shown.
-    pub screenshot: Option<Rect>,
     /// The show desktop button, when shown.
     pub show_desktop: Option<Rect>,
 }
@@ -79,7 +77,6 @@ impl Layout {
             Hover::Volume => self.volume,
             Hover::Clock => self.clock,
             Hover::ShowDesktop => self.show_desktop,
-            Hover::Screenshot => self.screenshot,
             Hover::Tray(index) => self.tray.map(|r| {
                 let size = r.h - 6;
                 Rect::new(r.x + GAP + index as i32 * (size + GAP), r.y + 3, size, size)
@@ -104,13 +101,6 @@ pub fn layout(d: &mut Desktop) -> Layout {
         .collect();
     let launchers_width = launcher_ids.len() as i32 * (bar.h - 6 + GAP);
     let mut right = bar.right() - GAP;
-    let screenshot = {
-        let width = 30;
-        right -= width;
-        let r = Rect::new(right, bar.y + 3, width, bar.h - 6);
-        right -= GAP;
-        Some(r)
-    };
     let show_desktop = if d.config.show_desktop_button {
         let width = show_desktop_glyph_width(bar.h - 6) + 8;
         right -= width;
@@ -193,7 +183,6 @@ pub fn layout(d: &mut Desktop) -> Layout {
         volume,
         clock,
         show_desktop,
-        screenshot,
     }
 }
 
@@ -226,9 +215,6 @@ pub fn hit(d: &mut Desktop, x: f64, y: f64) -> Hover {
     }
     if layout.clock.is_some_and(|r| r.contains(x, y)) {
         return Hover::Clock;
-    }
-    if layout.screenshot.is_some_and(|r| r.contains(x, y)) {
-        return Hover::Screenshot;
     }
     if layout.show_desktop.is_some_and(|r| r.contains(x, y)) {
         return Hover::ShowDesktop;
@@ -628,41 +614,7 @@ pub fn draw(d: &mut Desktop, canvas: &mut Canvas<'_>) {
         );
     }
 
-    if let Some(rect) = layout.screenshot {
-        if d.hover == Hover::Screenshot {
-            canvas.fill_rounded(rect, 4.0, ui::hover_bg());
-        }
-        // Keep the camera glyph legible on both compact and tall panels.
-        // Its dimensions follow the available button height instead of
-        // relying on fixed vertical margins that can collapse on short bars.
-        let body_w = (rect.h * 5 / 6).clamp(12, 20).min(rect.w - 10);
-        let body_h = (rect.h * 2 / 3).clamp(9, 16).min(rect.h.max(1));
-        let camera = Rect::new(
-            rect.x + (rect.w - body_w) / 2,
-            rect.y + (rect.h - body_h) / 2 + 1,
-            body_w,
-            body_h,
-        );
-        let line_width = if rect.h < 22 { 1.0 } else { 1.3 };
-        canvas.stroke_rounded(camera, 3.0, line_width, ui::text());
-        let lens = (body_h / 3).clamp(4, 6).min(body_w.saturating_sub(4));
-        canvas.stroke_rounded(
-            Rect::new(
-                camera.x + (camera.w - lens) / 2,
-                camera.y + (camera.h - lens) / 2,
-                lens,
-                lens,
-            ),
-            (lens / 2) as f32,
-            1.2,
-            ui::text(),
-        );
-        let tab_w = (body_w / 3).clamp(5, 7);
-        canvas.fill_rect(
-            Rect::new(camera.x + 3, camera.y - 2, tab_w, 2),
-            ui::text(),
-        );
-    }
+
     if let Some(rect) = layout.show_desktop {
         canvas.fill_rect(
             Rect::new(rect.x - GAP / 2 - 1, rect.y + 4, 1, rect.h - 8),
