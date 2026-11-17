@@ -268,6 +268,23 @@ pub struct Confirm {
     pub paths: Vec<PathBuf>,
 }
 
+/// A paste operation waiting for a decision about existing destination names.
+#[derive(Clone, Debug)]
+pub struct TransferConfirm {
+    /// Original files being copied or moved.
+    pub sources: Vec<PathBuf>,
+    /// Destination directory.
+    pub dest: PathBuf,
+    /// Whether this is a cut-and-paste operation.
+    pub moving: bool,
+    /// Sources whose existing destination should be replaced.
+    pub replace: HashSet<PathBuf>,
+    /// Conflicting sources, in clipboard order.
+    pub conflicts: Vec<PathBuf>,
+    /// The conflict currently shown.
+    pub index: usize,
+}
+
 /// File properties currently being inspected or edited.
 #[derive(Clone, Debug)]
 pub struct Properties {
@@ -353,6 +370,8 @@ pub struct FilesWindow {
     pub menu: Option<ContextMenu>,
     /// The deletion awaiting confirmation.
     pub confirm: Option<Confirm>,
+    /// A paste operation waiting for a conflict decision.
+    pub transfer_confirm: Option<TransferConfirm>,
     /// The properties dialog.
     pub properties: Option<Properties>,
     /// The picker this window is, if it is one.
@@ -568,6 +587,7 @@ impl Manager {
             rename: None,
             menu: None,
             confirm: None,
+            transfer_confirm: None,
             properties: None,
             picker,
             path_edit: None,
@@ -904,15 +924,22 @@ impl Manager {
     /// * `sources` - The files.
     /// * `dest` - The folder.
     /// * `moving` - Whether to move rather than copy.
-    pub fn transfer(&mut self, window: u32, sources: Vec<PathBuf>, dest: PathBuf, moving: bool) {
+    pub fn transfer(
+        &mut self,
+        window: u32,
+        sources: Vec<PathBuf>,
+        dest: PathBuf,
+        moving: bool,
+        replace: HashSet<PathBuf>,
+    ) {
         if sources.is_empty() {
             return;
         }
         let id = self.worker.submit(|id| {
             if moving {
-                ops::Job::Move { id, sources, dest }
+                ops::Job::Move { id, sources, dest, replace }
             } else {
-                ops::Job::Copy { id, sources, dest }
+                ops::Job::Copy { id, sources, dest, replace }
             }
         });
         self.operations.insert(id, window);
