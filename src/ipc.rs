@@ -148,6 +148,23 @@ pub fn send(command: Command) -> Result<(), String> {
         .write_all(format!("{}\n", command.line()).as_bytes())
         .map_err(|e| format!("{e}"))?;
     let _ = stream.shutdown(std::net::Shutdown::Write);
+
+    // A quit command is handled asynchronously by the running panel. Wait
+    // until its control socket is removed: that happens after TraySni::drop()
+    // has shut down the D-Bus host, so an immediate restart cannot race the
+    // previous process while it still owns org.kde.StatusNotifierWatcher.
+    if command == Command::Quit {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while path.exists() && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        if path.exists() {
+            return Err(format!(
+                "quit was sent, but the desktop did not stop within 5 seconds (socket {})",
+                path.display()
+            ));
+        }
+    }
     Ok(())
 }
 
