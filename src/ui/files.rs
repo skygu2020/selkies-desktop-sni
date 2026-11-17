@@ -3001,7 +3001,7 @@ fn draw_grid(
         .filter(|c| c.cut)
         .map(|c| c.paths.clone())
         .unwrap_or_default();
-    let font_px = ui::FONT_SIZE * scale as f32;
+    let font_px = ui::FILE_FONT_SIZE * scale as f32;
     for i in 0..count {
         let cell = cell_rect(content, i);
         let cell = Rect::new(cell.x, cell.y - scroll, cell.w, cell.h);
@@ -3060,14 +3060,14 @@ fn draw_grid(
         }
         let text_top = icon_rect.bottom() + 6;
         if let Some((text, cursor, anchor, caret_visible)) = renaming {
-            let field = Rect::new(cell.x + 2, text_top - 2, cell.w - 4, 24);
+            let field = Rect::new(cell.x + 2, text_top - 2, cell.w - 4, 26);
             draw_field(canvas, d, field, &text, scale, cursor, anchor, caret_visible);
             continue;
         }
         let color = if cut { ui::text_dim() } else { ui::text() };
         let max_width = (cell.w - 10) as f32 * scale as f32;
         let (line1, line2) = ui::wrap_two_lines(&mut d.fonts, &item.name, font_px, max_width);
-        let line_h = 16;
+        let line_h = 18;
         if selected || hover == Hit::Item(i) {
             let highlight = if selected { ui::accent_alpha(0x55) } else { ui::hover_bg() };
             let width1 = ((line1.width / scale as f32).ceil() as i32).min(cell.w - 10);
@@ -3140,7 +3140,7 @@ fn draw_list(
             &mut d.fonts,
             &text,
             Rect::new(rect.x + 6, rect.y, rect.w - 12, rect.h),
-            ui::FONT_SMALL,
+            ui::FONT_SIZE,
             true,
             align,
             ui::text_dim(),
@@ -3221,7 +3221,7 @@ fn draw_list(
                         );
                     } else {
                         if selected || hover == Hit::Item(i) {
-                            let width = ui::text_width(&mut d.fonts, &item.name, ui::FONT_SIZE, false, scale)
+                            let width = ui::text_width(&mut d.fonts, &item.name, ui::FILE_FONT_SIZE, false, scale)
                                 .min((name_rect.w - 8).max(0));
                             canvas.fill_rounded(
                                 Rect::new(name_rect.x - 3, name_rect.y + 4, width + 8, name_rect.h - 8),
@@ -3234,7 +3234,7 @@ fn draw_list(
                             &mut d.fonts,
                             &item.name,
                             name_rect,
-                            ui::FONT_SIZE,
+                            ui::FILE_FONT_SIZE,
                             false,
                             Align::Left,
                             color,
@@ -3252,7 +3252,7 @@ fn draw_list(
                         &mut d.fonts,
                         &text,
                         Rect::new(col.x + 6, row.y, col.w - 12, row.h),
-                        ui::FONT_SMALL,
+                        ui::FONT_SIZE,
                         false,
                         Align::Right,
                         ui::text_dim(),
@@ -3265,7 +3265,7 @@ fn draw_list(
                         &mut d.fonts,
                         &text,
                         Rect::new(col.x + 6, row.y, col.w - 12, row.h),
-                        ui::FONT_SMALL,
+                        ui::FONT_SIZE,
                         false,
                         Align::Left,
                         ui::text_dim(),
