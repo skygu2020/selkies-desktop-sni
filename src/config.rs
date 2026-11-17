@@ -185,6 +185,10 @@ pub struct Config {
     pub menu_layout: MenuLayout,
     /// Language code of the interface, or `None` to follow the environment.
     pub language: Option<String>,
+    /// Preferred UI font family, or `None` to choose the system default.
+    pub font_family: Option<String>,
+    /// UI font size in logical pixels.
+    pub font_size: i32,
     /// The colors of the interface.
     pub theme: crate::ui::Theme,
     /// The look of window frames, the bar and the popups.
@@ -237,6 +241,8 @@ impl Default for Config {
             panel_margin: 0,
             menu_layout: MenuLayout::Columns,
             language: None,
+            font_family: None,
+            font_size: 13,
             theme: crate::ui::Theme::default(),
             window: WindowStyle::default(),
             launchers: Vec::new(),
@@ -494,6 +500,10 @@ impl Config {
         if let Some(language) = values.get("language").map(|v| v.trim()).filter(|v| !v.is_empty()) {
             config.language = Some(language.to_string());
         }
+        config.font_family = values.get("font_family").map(|v| v.trim()).filter(|v| !v.is_empty()).map(str::to_string);
+        if let Some(size) = values.get("font_size").and_then(|v| v.trim().parse::<i32>().ok()) {
+            config.font_size = size.clamp(9, 24);
+        }
         config.window.decorate = truthy("theme_windows", config.window.decorate);
         if let Some(surface) = values
             .get("window_surface")
@@ -599,6 +609,9 @@ pub const PANEL_KEYS: [&str; 18] = [
 
 /// The keys of the interface colors.
 pub const COLOR_KEYS: [&str; 4] = ["color_accent", "color_panel", "color_popup", "color_text"];
+
+/// The keys of the typography settings.
+pub const FONT_KEYS: [&str; 2] = ["font_family", "font_size"];
 
 /// The keys of the window frame settings.
 pub const WINDOW_KEYS: [&str; 5] = [

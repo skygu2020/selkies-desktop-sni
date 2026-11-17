@@ -99,7 +99,7 @@ const SWATCH: i32 = 22;
 
 /// The sliders of the Panel and Theme pages: key, lowest, highest, step
 /// and unit.
-const SLIDERS: [(&str, i32, i32, i32, &str); 5] = [
+const SLIDERS: [(&str, i32, i32, i32, &str); 6] = [
     (
         "panel_height",
         config::MIN_PANEL_HEIGHT,
@@ -111,6 +111,7 @@ const SLIDERS: [(&str, i32, i32, i32, &str); 5] = [
     ("panel_opacity", 0, 100, 5, "%"),
     ("panel_margin", 0, config::MAX_PANEL_MARGIN, 2, "px"),
     ("window_corners", 0, config::MAX_CORNERS, 1, "px"),
+    ("font_size", 9, 24, 1, "px"),
 ];
 
 /// The color schemes: the four colors of each, as accent, bar, menus and
@@ -329,6 +330,8 @@ pub enum Field {
     StartIcon,
     /// The start button's label.
     StartLabel,
+    /// The UI font family.
+    FontFamily,
     /// The wallpaper image path.
     Image,
     /// The background color.
@@ -766,6 +769,7 @@ fn field_text(d: &Desktop, field: Field) -> String {
         Field::ClockFormat => d.config.clock_format.clone(),
         Field::StartIcon => d.config.start_icon.clone().unwrap_or_default(),
         Field::StartLabel => d.config.start_label.clone().unwrap_or_default(),
+        Field::FontFamily => d.config.font_family.clone().unwrap_or_else(|| d.fonts.family().to_string()),
         Field::Image => shown_wallpaper(d)
             .image
             .as_ref()
@@ -780,7 +784,7 @@ fn field_color(d: &Desktop, field: Field) -> Color {
     match field {
         Field::Color => shown_wallpaper(d).color,
         Field::Theme(color) => color.current(d.config.theme),
-        Field::ClockFormat | Field::StartIcon | Field::StartLabel | Field::Image => Color::BLACK,
+        Field::ClockFormat | Field::StartIcon | Field::StartLabel | Field::FontFamily | Field::Image => Color::BLACK,
     }
 }
 
@@ -807,7 +811,7 @@ fn page_keys(d: &Desktop) -> Vec<&'static str> {
         Page::Panel => PANEL_KEYS.to_vec(),
         Page::Files => FILES_KEYS.to_vec(),
         Page::Desktop => WALLPAPER_KEYS.iter().map(|k| wallpaper_key(d, k)).collect(),
-        Page::Theme => COLOR_KEYS.iter().chain(WINDOW_KEYS.iter()).copied().collect(),
+        Page::Theme => COLOR_KEYS.iter().chain(WINDOW_KEYS.iter()).chain(config::FONT_KEYS.iter()).copied().collect(),
     }
 }
 
@@ -1534,6 +1538,15 @@ fn build(d: &Desktop, frame: Rect, scroll: f64, view: View) -> Layout {
                     color.presets(),
                 );
             }
+            groups.group(tr("Typography"));
+            groups.field(
+                tr("Font family"),
+                Field::FontFamily,
+                field_text(d, Field::FontFamily),
+                focus == Some(Field::FontFamily),
+                &[(tr("Auto"), set("font_family", ""))],
+            );
+            groups.slider(tr("Font size"), "font_size", slider_value(d, "font_size"), "px");
             groups.group(tr("Windows"));
             let window = d.config.window;
             groups.switch(tr("Decorate windows"), "theme_windows", window.decorate);
@@ -1666,6 +1679,7 @@ fn slider_value(d: &Desktop, key: &str) -> i32 {
         "panel_width" => d.config.panel_width,
         "panel_margin" => d.config.panel_margin,
         "window_corners" => d.config.window.corners,
+        "font_size" => d.config.font_size,
         _ => d.config.panel_opacity,
     }
 }
@@ -2375,7 +2389,7 @@ fn preview_color(d: &mut Desktop, field: Field, color: Color) {
             }
             d.repaint_wallpapers();
         }
-        Field::ClockFormat | Field::StartIcon | Field::StartLabel | Field::Image => {}
+        Field::ClockFormat | Field::StartIcon | Field::StartLabel | Field::FontFamily | Field::Image => {}
     }
 }
 
@@ -2384,7 +2398,7 @@ fn color_key(d: &Desktop, field: Field) -> Option<&'static str> {
     match field {
         Field::Color => Some(wallpaper_key(d, "background")),
         Field::Theme(color) => Some(color.key()),
-        Field::ClockFormat | Field::StartIcon | Field::StartLabel | Field::Image => None,
+        Field::ClockFormat | Field::StartIcon | Field::StartLabel | Field::FontFamily | Field::Image => None,
     }
 }
 
@@ -2481,6 +2495,7 @@ fn commit_field(d: &mut Desktop) {
         Field::ClockFormat => ("clock_format", text),
         Field::StartIcon => ("start_icon", text.trim().to_string()),
         Field::StartLabel => ("start_label", text.trim().to_string()),
+        Field::FontFamily => ("font_family", text.trim().to_string()),
     };
     d.write_config(&[(key, value)]);
     sync_picker(d);

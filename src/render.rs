@@ -142,34 +142,55 @@ pub struct Fonts {
     system: FontSystem,
     glyphs: SwashCache,
     family: String,
+    size_scale: f32,
     shaped: HashMap<(String, u32, bool), Rc<Text>>,
 }
 
 impl Fonts {
     /// Loads the system fonts and picks the UI family.
     pub fn new() -> Fonts {
-        let mut system = FontSystem::new();
-        let installed: Vec<String> = system
-            .db()
-            .faces()
+        let mut fonts = Fonts {
+            system: FontSystem::new(),
+            glyphs: SwashCache::new(),
+            family: String::new(),
+            size_scale: 1.0,
+            shaped: HashMap::new(),
+        };
+        fonts.set_family(None);
+        fonts
+    }
+
+    /// Changes the family, falling back to the automatic sans-serif choice.
+    /// The requested name must match an installed family.
+    pub fn set_family(&mut self, requested: Option<&str>) {
+        let installed: Vec<String> = self.system.db().faces()
             .flat_map(|face| face.families.iter().map(|(name, _)| name.clone()))
             .collect();
-        let family = UI_FONT_CANDIDATES
-            .iter()
-            .find(|candidate| installed.iter().any(|name| name == *candidate))
-            .map(|name| name.to_string())
-            .unwrap_or_else(|| {
-                installed
-                    .first()
-                    .cloned()
-                    .unwrap_or_else(|| "sans-serif".to_string())
-            });
-        system.db_mut().set_sans_serif_family(family.clone());
-        Fonts {
-            system,
-            glyphs: SwashCache::new(),
-            family,
-            shaped: HashMap::new(),
+        let family = requested
+            .and_then(|wanted| installed.iter().find(|name| name.eq_ignore_ascii_case(wanted)))
+            .cloned()
+            .or_else(|| UI_FONT_CANDIDATES.iter()
+                .find_map(|candidate| installed.iter().find(|name| name.eq_ignore_ascii_case(candidate)).cloned()))
+            .or_else(|| installed.first().cloned())
+            .unwrap_or_else(|| "sans-serif".to_string());
+        if self.family != family {
+            self.family = family.clone();
+            self.system.db_mut().set_sans_serif_family(family);
+            self.shaped.clear();
+        }
+    }
+
+    /// The family currently used for UI text.
+    pub fn family(&self) -> &str {
+        &self.family
+    }
+
+    /// Changes the UI font size relative to the built-in layout sizes.
+    pub fn set_size(&mut self, size: i32) {
+        let scale = (size.clamp(9, 24) as f32 / 13.0).clamp(0.69, 1.85);
+        if (self.size_scale - scale).abs() > f32::EPSILON {
+            self.size_scale = scale;
+            self.shaped.clear();
         }
     }
 
@@ -181,6 +202,7 @@ impl Fonts {
     /// * `px` - Font size in physical pixels.
     /// * `bold` - Whether to use the bold weight.
     pub fn shape(&mut self, text: &str, px: f32, bold: bool) -> Rc<Text> {
+        let px = px * self.size_scale;
         let key = (text.to_string(), px.to_bits(), bold);
         if let Some(shaped) = self.shaped.get(&key) {
             return shaped.clone();

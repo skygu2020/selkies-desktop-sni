@@ -308,7 +308,9 @@ impl Desktop {
         if session {
             crate::wmtheme::apply(&config);
         }
-        let fonts = Fonts::new();
+        let mut fonts = Fonts::new();
+        fonts.set_family(config.font_family.as_deref());
+        fonts.set_size(config.font_size);
         let icons = Icons::new(config.icon_theme.as_deref());
         if session && config.files_manager {
             entries::ensure_files_entry();
@@ -481,6 +483,10 @@ impl Desktop {
             "panel_opacity" => self.config.panel_opacity = value,
             "panel_margin" => self.config.panel_margin = value,
             "window_corners" => self.config.window.corners = value,
+            "font_size" => {
+                self.config.font_size = value.clamp(9, 24);
+                self.fonts.set_size(self.config.font_size);
+            }
             _ => return,
         }
         self.sync_panel(was_top, was_height, was_autohide);
@@ -646,6 +652,8 @@ impl Desktop {
             self.config.panel_autohide,
         );
         self.config = Config::load();
+        self.fonts.set_family(self.config.font_family.as_deref());
+        self.fonts.set_size(self.config.font_size);
         self.sync_panel(was_top, was_height, was_autohide);
         crate::wmtheme::apply(&self.config);
         self.icons = Icons::new(self.config.icon_theme.as_deref());
@@ -670,6 +678,8 @@ impl Desktop {
             self.config.panel_autohide,
         );
         self.config = Config::load();
+        self.fonts.set_family(self.config.font_family.as_deref());
+        self.fonts.set_size(self.config.font_size);
         self.sync_panel(was_top, was_height, was_autohide);
         crate::wmtheme::apply(&self.config);
         self.wallpapers.retain(|_, image| image.is_some());
