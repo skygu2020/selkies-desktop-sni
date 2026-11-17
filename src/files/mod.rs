@@ -335,6 +335,8 @@ pub struct Progress {
     pub done: u64,
     /// Bytes in total.
     pub total: u64,
+    /// Whether the counters represent bytes rather than item counts.
+    pub by_bytes: bool,
     /// The file being worked on.
     pub current: String,
 }
@@ -800,7 +802,12 @@ impl Manager {
                     if let Some(window_id) = self.operations.get(&id).copied()
                         && let Some(window) = self.window_mut(window_id)
                     {
-                        window.progress = Some((id, Progress { done, total, current }));
+                        window.progress = Some((id, Progress {
+                            done: done as u64,
+                            total: total as u64,
+                            by_bytes: false,
+                            current,
+                        }));
                         window.dirty = true;
                     }
                 }
@@ -808,7 +815,12 @@ impl Manager {
                     if let Some(window_id) = self.operations.get(&id).copied()
                         && let Some(window) = self.window_mut(window_id)
                     {
-                        window.progress = Some((id, Progress { done, total, current }));
+                        window.progress = Some((id, Progress {
+                            done,
+                            total,
+                            by_bytes: true,
+                            current,
+                        }));
                         window.dirty = true;
                     }
                 }
