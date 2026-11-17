@@ -7,6 +7,7 @@ pub mod wayland;
 pub mod x11;
 
 use std::os::fd::RawFd;
+use std::time::Instant;
 
 use crate::desktop::Frame;
 use crate::event::{Event, Request, SurfaceId};
@@ -39,6 +40,13 @@ pub trait Backend {
     /// # Errors
     /// The connection failed.
     fn dispatch(&mut self, readable: bool) -> Result<Vec<Event>, String>;
+
+    /// The next time the backend must wake without a display-server event.
+    /// Backends without timed input (such as X11, where the server repeats
+    /// keys) can leave this unset.
+    fn next_deadline(&self) -> Option<Instant> {
+        None
+    }
 
     /// Shows a rendered frame on a surface.
     ///

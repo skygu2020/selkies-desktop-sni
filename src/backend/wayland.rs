@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::os::fd::{AsFd, AsRawFd, OwnedFd, RawFd};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 use wayland_client::backend::ObjectId;
 use wayland_client::globals::GlobalListContents;
@@ -185,6 +186,17 @@ struct Handle {
     handle: zwlr_foreign_toplevel_handle_v1::ZwlrForeignToplevelHandleV1,
 }
 
+/// A key being repeated by the Wayland backend.
+#[derive(Clone, Copy)]
+struct KeyRepeat {
+    keycode: u32,
+    key: crate::xkb::Key,
+    surface: SurfaceId,
+    modifiers: Modifiers,
+    next: Instant,
+    interval: Duration,
+}
+
 /// The dispatch state behind the event queue.
 struct State {
     compositor: Option<wl_compositor::WlCompositor>,
@@ -215,6 +227,9 @@ struct State {
     keymap: Keymap,
     modifiers: Modifiers,
     caps_lock: bool,
+    repeat_rate: u32,
+    repeat_delay: Duration,
+    key_repeat: Option<KeyRepeat>,
     handles: HashMap<ObjectId, Handle>,
     next_toplevel_id: u64,
     events: Vec<Event>,
@@ -820,6 +835,9 @@ impl WaylandBackend {
             keymap: Keymap::default(),
             modifiers: Modifiers::default(),
             caps_lock: false,
+            repeat_rate: 0,
+            repeat_delay: Duration::from_millis(600),
+            key_repeat: None,
             handles: HashMap::new(),
             next_toplevel_id: 1,
             events: Vec::new(),
@@ -1142,6 +1160,10 @@ impl Backend for WaylandBackend {
         !self.state.events.is_empty()
     }
 
+    fn next_deadline(&self) -> Option<Instant> {
+        self.state.key_repeat.map(|repeat| repeat.next)
+    }
+
     fn panel_origin(&self) -> (i32, i32, i32) {
         let Some(panel) = self.state.panel.as_ref() else {
             return (0, 0, 1);
@@ -1177,6 +1199,26 @@ impl Backend for WaylandBackend {
         if let Some(error) = self.conn.protocol_error() {
             return Err(format!("protocol error: {}", error.message));
         }
+        let now = Instant::now();
+        let mut repeated = Vec::new();
+        if let Some(repeat) = self.state.key_repeat.as_mut() {
+            let mut count = 0;
+            while repeat.next <= now && count < 8 {
+                repeated.push(Event::Key {
+                    surface: repeat.surface,
+                    key: repeat.key,
+                    modifiers: repeat.modifiers,
+                });
+                repeat.next += repeat.interval;
+                count += 1;
+            }
+            // Do not emit a burst of stale repeats after the process was
+            // suspended or the main loop was blocked for a long time.
+            if repeat.next <= now {
+                repeat.next = now + repeat.interval;
+            }
+        }
+        self.state.events.extend(repeated);
         Ok(std::mem::take(&mut self.state.events))
     }
 
@@ -1858,23 +1900,44 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for State {
                     alt: held & 8 != 0,
                 };
                 state.caps_lock = mods_locked & 2 != 0;
+                if let Some(repeat) = state.key_repeat.as_mut() {
+                    repeat.modifiers = state.modifiers;
+                }
+            }
+            wl_keyboard::Event::RepeatInfo { rate, delay } => {
+                state.repeat_rate = rate.max(0) as u32;
+                state.repeat_delay = Duration::from_millis(delay.max(0) as u64);
+                if rate <= 0 {
+                    state.key_repeat = None;
+                }
             }
             wl_keyboard::Event::Key {
                 key,
                 state: key_state,
                 ..
             } => {
-                if key_state == WEnum::Value(wl_keyboard::KeyState::Pressed)
-                    && let Some(surface) = state.keyboard_surface
-                    && let Some(k) = state
-                        .keymap
-                        .translate(key + 8, state.modifiers.shift, state.caps_lock)
-                {
-                    state.events.push(Event::Key {
-                        surface,
-                        key: k,
-                        modifiers: state.modifiers,
-                    });
+                if key_state == WEnum::Value(wl_keyboard::KeyState::Pressed) {
+                    if let Some(surface) = state.keyboard_surface
+                        && let Some(translated) = state
+                            .keymap
+                            .translate(key + 8, state.modifiers.shift, state.caps_lock)
+                    {
+                        state.events.push(Event::Key {
+                            surface,
+                            key: translated,
+                            modifiers: state.modifiers,
+                        });
+                        state.key_repeat = (state.repeat_rate > 0).then(|| KeyRepeat {
+                            keycode: key,
+                            key: translated,
+                            surface,
+                            modifiers: state.modifiers,
+                            next: Instant::now() + state.repeat_delay,
+                            interval: Duration::from_secs_f64(1.0 / state.repeat_rate as f64),
+                        });
+                    }
+                } else if state.key_repeat.is_some_and(|repeat| repeat.keycode == key) {
+                    state.key_repeat = None;
                 }
             }
             wl_keyboard::Event::Enter { surface, .. } => {
@@ -1885,6 +1948,7 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for State {
                     state.events.push(Event::KeyboardLeave { surface: id });
                 }
                 state.keyboard_surface = None;
+                state.key_repeat = None;
             }
             _ => {}
         }

@@ -325,7 +325,7 @@ fn run() -> i32 {
         }
 
         let mut deadline = desktop.next_deadline(now);
-        for candidate in [watcher.deadline(), audio.as_ref().map(|a| a.deadline(now)), sni_deadline]
+        for candidate in [backend.next_deadline(), watcher.deadline(), audio.as_ref().map(|a| a.deadline(now)), sni_deadline]
             .into_iter()
             .flatten()
         {

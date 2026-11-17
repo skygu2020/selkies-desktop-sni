@@ -1224,8 +1224,18 @@ fn open_item(d: &mut Desktop, id: u32, index: usize) {
     open_with_default(d, id, std::slice::from_ref(&item.path), &item.mime);
 }
 
-/// Launches the default application of a type on files, or `xdg-open`.
+/// Launches the system's configured image application through xdg-open;
+/// other types use the desktop-entry associations read from mimeapps.list.
 fn open_with_default(d: &mut Desktop, id: u32, paths: &[PathBuf], mime: &str) {
+    if mime.starts_with("image/") && entries::resolve_program("xdg-open").is_some() {
+        for path in paths {
+            entries::spawn_detached(
+                &["xdg-open".to_string(), path.to_string_lossy().to_string()],
+                None,
+            );
+        }
+        return;
+    }
     let handlers = d.files.mime.handlers(mime);
     for handler in handlers {
         if let Some(entry) = entries::load_entry(&handler) {
@@ -1447,6 +1457,12 @@ fn folder_rows(w: &FilesWindow) -> Vec<MenuRow> {
         rows.push(MenuRow::Action(
             tr("Open in terminal").to_string(),
             MenuAction::Terminal,
+            true,
+        ));
+        rows.push(MenuRow::Separator);
+        rows.push(MenuRow::Action(
+            tr("Properties").to_string(),
+            MenuAction::Properties(w.dir.clone()),
             true,
         ));
     }
