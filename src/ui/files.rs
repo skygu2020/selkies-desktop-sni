@@ -466,9 +466,10 @@ pub fn hit(d: &mut Desktop, id: u32, x: f64, y: f64) -> Hit {
         return Hit::None;
     };
     let layout = layout(&d.files.windows[index]);
-    if d.files.windows[index].transfer_confirm.is_some() {
+    if let Some(pending) = d.files.windows[index].transfer_confirm.as_ref() {
         let (_, buttons) = transfer_confirm_rects(&d.files.windows[index]);
-        for (i, rect) in buttons.iter().enumerate() {
+        let count = if pending.conflicts.len() > 1 { 4 } else { 3 };
+        for (i, rect) in buttons.iter().take(count).enumerate() {
             if rect.contains(x, y) { return Hit::TransferConfirm(i); }
         }
         return Hit::None;
