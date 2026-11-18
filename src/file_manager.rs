@@ -15,7 +15,6 @@ use std::thread;
 
 use rustbus::connection::Timeout;
 use rustbus::connection::ll_conn::DuplexConn;
-use rustbus::message_builder::MessageType;
 use rustbus::standard_messages;
 
 const SERVICE: &str = "org.freedesktop.FileManager1";
@@ -35,13 +34,17 @@ impl Service {
 
     /// Clears the wakeup socket and drains all queued requests.
     pub fn drain(&self) -> Vec<Vec<PathBuf>> {
-        let mut bytes = [0u8; 128];
-        loop {
-            match self.wake.read(&mut bytes) {
-                Ok(0) => break,
-                Ok(_) => continue,
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
-                Err(_) => break,
+        // Clone the descriptor so reading does not require a mutable borrow
+        // of the service held by the desktop event loop.
+        if let Ok(mut wake) = self.wake.try_clone() {
+            let mut bytes = [0u8; 128];
+            loop {
+                match wake.read(&mut bytes) {
+                    Ok(0) => break,
+                    Ok(_) => continue,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                    Err(_) => break,
+                }
             }
         }
         self.receiver.try_iter().collect()
@@ -86,7 +89,12 @@ fn run(
 
     loop {
         let msg = conn.recv.get_next_message(Timeout::Infinite)?;
-        if msg.typ != MessageType::MethodCall || msg.dynheader.object.as_deref() != Some(PATH) {
+        // Replies and unrelated bus traffic do not carry this object path
+        // and method member. rustbus 0.19.3's MessageType does not expose a
+        // MethodCall variant, so dispatch using the dynamic method headers.
+        if msg.dynheader.object.as_deref() != Some(PATH)
+            || msg.dynheader.member.is_none()
+        {
             continue;
         }
         let interface = msg.dynheader.interface.as_deref().unwrap_or("");
