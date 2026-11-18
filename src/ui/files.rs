@@ -2746,6 +2746,21 @@ pub fn draw(d: &mut Desktop, id: u32, canvas: &mut Canvas<'_>) {
     };
     let scale = canvas.scale();
     let layout = layout(&d.files.windows[index]);
+    if d.files.windows[index].reveal_cursor {
+        let w = &mut d.files.windows[index];
+        if let Some(cursor) = w.cursor {
+            let bounds = item_rect(w, layout.content, cursor);
+            let top = w.scroll;
+            let bottom = top + layout.content.h as f64;
+            if bounds.y as f64 < top {
+                w.scroll = bounds.y.max(0) as f64;
+            } else if bounds.bottom() as f64 > bottom {
+                w.scroll = (bounds.bottom() - layout.content.h).max(0) as f64;
+            }
+        }
+        w.reveal_cursor = false;
+        clamp_scroll(w, layout.content);
+    }
     let hover = match d.hover {
         Hover::Files(h, hit) if h == id => hit,
         _ => Hit::None,

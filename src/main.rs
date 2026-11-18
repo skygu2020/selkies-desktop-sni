@@ -9,6 +9,7 @@ mod desktop;
 mod entries;
 mod event;
 mod files;
+mod file_manager;
 mod geom;
 mod i18n;
 mod icons;
@@ -146,6 +147,7 @@ fn run() -> i32 {
     }
     let mut watcher = watch::Watcher::new();
     let server = ipc::Server::bind();
+    let file_manager = file_manager::start();
     let mut audio = if desktop.config.show_volume {
         Some(audio::Audio::new())
     } else {
@@ -448,6 +450,24 @@ fn run() -> i32 {
                     }
                     ipc::Command::Quit => return 0,
                 }
+            }
+        }
+
+        for paths in file_manager.try_iter() {
+            let mut groups: Vec<(std::path::PathBuf, Vec<std::path::PathBuf>)> = Vec::new();
+            for path in paths {
+                if path.is_dir() {
+                    desktop.open_files(Some(path), None);
+                } else if let Some(parent) = path.parent().filter(|parent| parent.is_dir()) {
+                    if let Some((_, selected)) = groups.iter_mut().find(|(dir, _)| dir == parent) {
+                        selected.push(path);
+                    } else {
+                        groups.push((parent.to_path_buf(), vec![path]));
+                    }
+                }
+            }
+            for (dir, selected) in groups {
+                desktop.open_files_selected(dir, selected);
             }
         }
         if let Some(index) = audio_index

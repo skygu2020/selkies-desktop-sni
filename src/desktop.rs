@@ -593,6 +593,32 @@ impl Desktop {
     /// # Returns
     /// The window's number.
     pub fn open_files(&mut self, dir: Option<std::path::PathBuf>, picker: Option<files::Picker>) -> u32 {
+        let (dir, selected) = match dir {
+            Some(path) if path.is_dir() => (Some(path), Vec::new()),
+            Some(path) => {
+                let parent = path.parent().filter(|parent| parent.is_dir()).map(std::path::Path::to_path_buf);
+                (parent, vec![path])
+            }
+            None => (None, Vec::new()),
+        };
+        self.open_files_with_selection(dir, selected, picker)
+    }
+
+    /// Opens a folder and reveals the supplied files after its asynchronous scan completes.
+    pub fn open_files_selected(
+        &mut self,
+        dir: std::path::PathBuf,
+        selected: Vec<std::path::PathBuf>,
+    ) -> u32 {
+        self.open_files_with_selection(Some(dir), selected, None)
+    }
+
+    fn open_files_with_selection(
+        &mut self,
+        dir: Option<std::path::PathBuf>,
+        selected: Vec<std::path::PathBuf>,
+        picker: Option<files::Picker>,
+    ) -> u32 {
         let defaults = files::Defaults {
             view: if self.config.files_list {
                 files::View::List
@@ -607,7 +633,7 @@ impl Desktop {
             },
             show_hidden: self.config.files_hidden,
         };
-        let id = self.files.open(dir, picker, defaults);
+        let id = self.files.open(dir, selected, picker, defaults);
         let title = self.files.window(id).map(|w| w.title()).unwrap_or_default();
         let icon = self
             .icons

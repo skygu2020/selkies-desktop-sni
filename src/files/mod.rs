@@ -383,6 +383,10 @@ pub struct FilesWindow {
     scan_generation: u64,
     /// Whether the current directory listing is being read in the background.
     pub loading: bool,
+    /// Files to select when they appear in the asynchronous directory listing.
+    reveal: Vec<PathBuf>,
+    /// Whether the selected cursor should be scrolled into view on the next draw.
+    pub reveal_cursor: bool,
     /// A press waiting to become a click or a drag.
     pub press: Option<Press>,
     /// A rectangular selection gesture in the listing.
@@ -491,6 +495,18 @@ impl FilesWindow {
             .map(|(i, _)| i)
             .collect();
         self.cursor = cursor_path.and_then(|p| self.items.iter().position(|i| i.path == p));
+        if self.reveal.iter().any(|path| self.all.iter().any(|item| item.path == *path && item.hidden)) {
+            self.show_hidden = true;
+        }
+        let revealed: Vec<PathBuf> = self.reveal.iter().filter(|path| self.items.iter().any(|item| item.path == **path)).cloned().collect();
+        for path in &revealed {
+            if let Some(index) = self.items.iter().position(|item| item.path == *path) {
+                self.selection.insert(index);
+                self.cursor = Some(index);
+                self.reveal_cursor = true;
+            }
+        }
+        self.reveal.retain(|path| !revealed.contains(path));
         if let Some(rename) = &self.rename
             && rename.index >= self.items.len()
         {
@@ -580,7 +596,7 @@ impl Manager {
     ///
     /// # Returns
     /// The window's number.
-    pub fn open(&mut self, dir: Option<PathBuf>, picker: Option<Picker>, defaults: Defaults) -> u32 {
+    pub fn open(&mut self, dir: Option<PathBuf>, reveal: Vec<PathBuf>, picker: Option<Picker>, defaults: Defaults) -> u32 {
         self.places = places();
         let id = self.next_id;
         self.next_id += 1;
@@ -606,6 +622,8 @@ impl Manager {
             dirty: true,
             scan_generation: 0,
             loading: true,
+            reveal,
+            reveal_cursor: false,
             press: None,
             selection_drag: None,
             rename: None,
