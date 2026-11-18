@@ -363,6 +363,14 @@ fn run() -> i32 {
             });
             fds.len() - 1
         });
+        let file_manager_index = file_manager.as_ref().map(|service| {
+            fds.push(libc::pollfd {
+                fd: service.fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            });
+            fds.len() - 1
+        });
         let audio_index = audio.as_ref().and_then(|a| a.fd()).map(|fd| {
             fds.push(libc::pollfd {
                 fd,
@@ -453,23 +461,30 @@ fn run() -> i32 {
             }
         }
 
-        for paths in file_manager.try_iter() {
-            let mut groups: Vec<(std::path::PathBuf, Vec<std::path::PathBuf>)> = Vec::new();
-            for path in paths {
-                if path.is_dir() {
-                    desktop.open_files(Some(path), None);
-                } else if let Some(parent) = path.parent().filter(|parent| parent.is_dir()) {
-                    if let Some((_, selected)) = groups.iter_mut().find(|(dir, _)| dir == parent) {
-                        selected.push(path);
-                    } else {
-                        groups.push((parent.to_path_buf(), vec![path]));
+        if let Some(index) = file_manager_index
+            && fds[index].revents & (libc::POLLIN | libc::POLLHUP) != 0
+            && let Some(service) = file_manager.as_ref()
+        {
+            for paths in service.drain() {
+                let mut groups: Vec<(std::path::PathBuf, Vec<std::path::PathBuf>)> = Vec::new();
+                for path in paths {
+                    if path.is_dir() {
+                        desktop.open_files(Some(path), None);
+                    } else if let Some(parent) = path.parent().filter(|parent| parent.is_dir()) {
+                        if let Some((_, selected)) = groups.iter_mut().find(|(dir, _)| dir.as_path() == parent) {
+                            selected.push(path);
+                        } else {
+                            groups.push((parent.to_path_buf(), vec![path]));
+                        }
                     }
                 }
-            }
-            for (dir, selected) in groups {
-                desktop.open_files_selected(dir, selected);
+                for (dir, selected) in groups {
+                    desktop.open_files_selected(dir, selected);
+                }
             }
         }
+
+
         if let Some(index) = audio_index
             && fds[index].revents & (libc::POLLIN | libc::POLLHUP) != 0
             && let Some(audio) = audio.as_mut()

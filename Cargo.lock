@@ -658,6 +658,7 @@ dependencies = [
  "libc 0.2.191"
  "memmap2"
  "resvg"
+ "rustbus"
  "rustsni"
  "tiny-skia"
  "wayland-client"

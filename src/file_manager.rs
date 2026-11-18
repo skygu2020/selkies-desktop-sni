@@ -7,6 +7,9 @@
 use std::ffi::OsString;
 use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
+use std::io::{Read, Write};
+use std::os::fd::{AsRawFd, RawFd};
+use std::os::unix::net::UnixStream;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
@@ -19,20 +22,52 @@ const SERVICE: &str = "org.freedesktop.FileManager1";
 const PATH: &str = "/org/freedesktop/FileManager1";
 const INTERFACE: &str = "org.freedesktop.FileManager1";
 
-/// Starts the FileManager1 service and returns paths requested by clients.
-pub fn start() -> Receiver<Vec<PathBuf>> {
-    let (tx, rx) = mpsc::channel();
-    let _ = thread::Builder::new()
-        .name("file-manager-dbus".into())
-        .spawn(move || {
-            if let Err(error) = run(tx) {
-                eprintln!("selkies-desktop: FileManager1 service stopped: {error}");
-            }
-        });
-    rx
+/// The FileManager1 service, with a wakeup descriptor for the desktop poll loop.
+pub struct Service {
+    receiver: Receiver<Vec<PathBuf>>,
+    wake: UnixStream,
 }
 
-fn run(tx: Sender<Vec<PathBuf>>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+impl Service {
+    pub fn fd(&self) -> RawFd {
+        self.wake.as_raw_fd()
+    }
+
+    /// Clears the wakeup socket and drains all queued requests.
+    pub fn drain(&self) -> Vec<Vec<PathBuf>> {
+        let mut bytes = [0u8; 128];
+        loop {
+            match self.wake.read(&mut bytes) {
+                Ok(0) => break,
+                Ok(_) => continue,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(_) => break,
+            }
+        }
+        self.receiver.try_iter().collect()
+    }
+}
+
+/// Starts the FileManager1 service and returns paths requested by clients.
+pub fn start() -> Option<Service> {
+    let (wake, writer) = UnixStream::pair().ok()?;
+    wake.set_nonblocking(true).ok()?;
+    let (tx, rx) = mpsc::channel();
+    thread::Builder::new()
+        .name("file-manager-dbus".into())
+        .spawn(move || {
+            if let Err(error) = run(tx, writer) {
+                eprintln!("selkies-desktop: FileManager1 service stopped: {error}");
+            }
+        })
+        .ok()?;
+    Some(Service { receiver: rx, wake })
+}
+
+fn run(
+    tx: Sender<Vec<PathBuf>>,
+    mut wake: UnixStream,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut conn = DuplexConn::connect_to_bus(rustbus::get_session_bus_path()?, true)?;
     conn.send_hello(Timeout::Infinite)?;
 
@@ -74,8 +109,8 @@ fn run(tx: Sender<Vec<PathBuf>>) -> Result<(), Box<dyn std::error::Error + Send 
 
         if member == "ShowItems" || member == "ShowFolders" {
             let paths: Vec<PathBuf> = uris.iter().filter_map(|uri| file_uri_to_path(uri)).collect();
-            if !paths.is_empty() {
-                let _ = tx.send(paths);
+            if !paths.is_empty() && tx.send(paths).is_ok() {
+                let _ = wake.write_all(&[1]);
             }
         } else if member != "ShowItemProperties" {
             let error = msg.dynheader.make_error_response(
