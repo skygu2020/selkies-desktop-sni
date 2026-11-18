@@ -471,7 +471,7 @@ impl FilesWindow {
             .cursor
             .and_then(|c| self.items.get(c))
             .map(|i| i.path.clone());
-        if self.reveal.iter().any(|path| self.all.iter().any(|item| item.path == *path && item.hidden)) {
+        if self.reveal.iter().any(|path| self.all.iter().any(|item| item.path.as_path() == path.as_path() && item.hidden)) {
             self.show_hidden = true;
         }
         let needle = self.filter.to_lowercase();
@@ -498,9 +498,9 @@ impl FilesWindow {
             .map(|(i, _)| i)
             .collect();
         self.cursor = cursor_path.and_then(|p| self.items.iter().position(|i| i.path == p));
-        let revealed: Vec<PathBuf> = self.reveal.iter().filter(|path| self.items.iter().any(|item| item.path == **path)).cloned().collect();
+        let revealed: Vec<PathBuf> = self.reveal.iter().filter(|path| self.items.iter().any(|item| item.path.as_path() == path.as_path())).cloned().collect();
         for path in &revealed {
-            if let Some(index) = self.items.iter().position(|item| item.path == *path) {
+            if let Some(index) = self.items.iter().position(|item| item.path.as_path() == path.as_path()) {
                 self.selection.insert(index);
                 self.cursor = Some(index);
                 self.reveal_cursor = true;

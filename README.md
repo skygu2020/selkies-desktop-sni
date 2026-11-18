@@ -162,6 +162,7 @@ A second invocation sends a command over the control socket in
 selkies-desktop --toggle-menu     # open or close the start menu
 selkies-desktop --show-desktop    # minimize every window, or restore them
 selkies-desktop --files [DIR]     # open the file manager, on a folder when given
+  Passing a file path opens its parent folder and selects that file.
 selkies-desktop --reload          # read the applications and settings again
 selkies-desktop --quit
 selkies-desktop --lookup-icon firefox   # print the file an icon name resolves to

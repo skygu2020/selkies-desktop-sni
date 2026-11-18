@@ -86,13 +86,29 @@ fn run(
 
     loop {
         let msg = conn.recv.get_next_message(Timeout::Infinite)?;
-        if msg.typ != MessageType::MethodCall
-            || msg.dynheader.interface.as_deref() != Some(INTERFACE)
-            || msg.dynheader.object.as_deref() != Some(PATH)
-        {
+        if msg.typ != MessageType::MethodCall || msg.dynheader.object.as_deref() != Some(PATH) {
             continue;
         }
+        let interface = msg.dynheader.interface.as_deref().unwrap_or("");
         let member = msg.dynheader.member.as_deref().unwrap_or("");
+        if interface == "org.freedesktop.DBus.Introspectable" && member == "Introspect" {
+            let xml = r#"<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<node>
+  <interface name="org.freedesktop.FileManager1">
+    <method name="ShowFolders"><arg type="as" direction="in"/><arg type="s" direction="in"/></method>
+    <method name="ShowItems"><arg type="as" direction="in"/><arg type="s" direction="in"/></method>
+    <method name="ShowItemProperties"><arg type="as" direction="in"/><arg type="s" direction="in"/></method>
+  </interface>
+</node>"#;
+            let mut reply = msg.dynheader.make_response();
+            reply.body.push_param(xml).unwrap();
+            conn.send.send_message_write_all(&reply)?;
+            continue;
+        }
+        if interface != INTERFACE {
+            continue;
+        }
         let mut parser = msg.body.parser();
         let uris: Vec<String> = match parser.get() {
             Ok(uris) => uris,
@@ -112,7 +128,7 @@ fn run(
             if !paths.is_empty() && tx.send(paths).is_ok() {
                 let _ = wake.write_all(&[1]);
             }
-        } else if member != "ShowItemProperties" {
+        } else {
             let error = msg.dynheader.make_error_response(
                 "org.freedesktop.DBus.Error.UnknownMethod".to_owned(),
                 Some(format!("Unknown method: {member}")),

@@ -2752,9 +2752,9 @@ pub fn draw(d: &mut Desktop, id: u32, canvas: &mut Canvas<'_>) {
             let bounds = item_rect(w, layout.content, cursor);
             let top = w.scroll;
             let bottom = top + layout.content.h as f64;
-            if (bounds.y - layout.content.y) as f64 < top {
+            if ((bounds.y - layout.content.y) as f64) < top {
                 w.scroll = (bounds.y - layout.content.y).max(0) as f64;
-            } else if (bounds.bottom() - layout.content.y) as f64 > bottom {
+            } else if ((bounds.bottom() - layout.content.y) as f64) > bottom {
                 w.scroll = (bounds.bottom() - layout.content.y - layout.content.h).max(0) as f64;
             }
         }
