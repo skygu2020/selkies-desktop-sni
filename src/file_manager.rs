@@ -93,9 +93,11 @@ fn run(tx: Sender<Vec<PathBuf>>) -> Result<(), Box<dyn std::error::Error + Send 
 fn file_uri_to_path(uri: &str) -> Option<PathBuf> {
     let rest = uri.strip_prefix("file://")?;
     let encoded = if rest.starts_with('/') {
-        rest
+        rest.to_owned()
+    } else if let Some(path) = rest.strip_prefix("localhost/") {
+        format!("/{path}")
     } else {
-        rest.strip_prefix("localhost/").map(|path| format!("/{path}")).as_deref()?
+        return None;
     };
     let bytes = encoded.as_bytes();
     let mut decoded = Vec::with_capacity(bytes.len());

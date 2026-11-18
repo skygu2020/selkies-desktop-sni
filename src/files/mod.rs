@@ -471,6 +471,9 @@ impl FilesWindow {
             .cursor
             .and_then(|c| self.items.get(c))
             .map(|i| i.path.clone());
+        if self.reveal.iter().any(|path| self.all.iter().any(|item| item.path == *path && item.hidden)) {
+            self.show_hidden = true;
+        }
         let needle = self.filter.to_lowercase();
         let picker_mimes: Option<Vec<&'static str>> = self.picker.as_ref().map(|p| p.mimes.clone());
         let mut items: Vec<Item> = self
@@ -495,9 +498,6 @@ impl FilesWindow {
             .map(|(i, _)| i)
             .collect();
         self.cursor = cursor_path.and_then(|p| self.items.iter().position(|i| i.path == p));
-        if self.reveal.iter().any(|path| self.all.iter().any(|item| item.path == *path && item.hidden)) {
-            self.show_hidden = true;
-        }
         let revealed: Vec<PathBuf> = self.reveal.iter().filter(|path| self.items.iter().any(|item| item.path == **path)).cloned().collect();
         for path in &revealed {
             if let Some(index) = self.items.iter().position(|item| item.path == *path) {

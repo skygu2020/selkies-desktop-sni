@@ -37,7 +37,7 @@ session.  With a command, talks to the running panel instead:
 
   --screenshot     capture a region of the primary Wayland output
   --toggle-menu    open or close the start menu
-  --files [DIR]    open the file manager, on a folder when given
+  --files [PATH]   open the file manager, selecting PATH when it is a file
   --show-desktop   minimize every window, or restore them
   --reload         read the applications and settings again
   --quit, --exit   exit the running panel cleanly (including SNI host shutdown)
