@@ -1,0 +1,17 @@
+[package]
+name = "rustsni"
+version = "0.2.2"
+edition = "2024"
+description = "A poll-friendly StatusNotifierItem host library built on rustbus"
+license = "MIT"
+repository = "https://github.com/acd407/rustsni"
+homepage = "https://github.com/acd407/rustsni"
+documentation = "https://docs.rs/rustsni"
+readme = "README.md"
+keywords = ["status-notifier", "dbus", "sni", "system-tray", "tray"]
+categories = ["api-bindings", "os::linux-apis"]
+rust-version = "1.85"
+
+[dependencies]
+rustbus = "0.19.3"
+thiserror = "2"

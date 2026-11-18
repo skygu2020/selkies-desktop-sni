@@ -638,8 +638,6 @@ dependencies = [
 [[package]]
 name = "rustsni"
 version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "667bb5a0be3c02f85ff8fb56176f30ceb256d8961620f3ab1bee57e46de83c07"
 dependencies = [
  "rustbus"
  "thiserror 2.0.18"
@@ -660,6 +658,7 @@ dependencies = [
  "libc 0.2.191"
  "memmap2"
  "resvg"
+ "rustsni"
  "tiny-skia"
  "wayland-client"
  "wayland-cursor"
