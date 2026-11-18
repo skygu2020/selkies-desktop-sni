@@ -98,7 +98,6 @@ fn run(
   <interface name="org.freedesktop.FileManager1">
     <method name="ShowFolders"><arg type="as" direction="in"/><arg type="s" direction="in"/></method>
     <method name="ShowItems"><arg type="as" direction="in"/><arg type="s" direction="in"/></method>
-    <method name="ShowItemProperties"><arg type="as" direction="in"/><arg type="s" direction="in"/></method>
   </interface>
 </node>"#;
             let mut reply = msg.dynheader.make_response();
@@ -107,6 +106,11 @@ fn run(
             continue;
         }
         if interface != INTERFACE {
+            let error = msg.dynheader.make_error_response(
+                "org.freedesktop.DBus.Error.UnknownInterface".to_owned(),
+                Some(format!("Unknown interface: {interface}")),
+            );
+            conn.send.send_message_write_all(&error)?;
             continue;
         }
         let mut parser = msg.body.parser();
