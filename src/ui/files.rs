@@ -945,7 +945,7 @@ pub fn pointer_button(
         if let Some(w) = d.files.window_mut(id) {
             w.menu = None;
         }
-        hit = hit(d, id, x, y);
+        hit = self::hit(d, id, x, y);
     }
     let places = d.files.places.len();
     let Some(w) = d.files.window_mut(id) else {
