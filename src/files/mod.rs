@@ -309,6 +309,14 @@ pub struct Properties {
     pub can_modify: bool,
     /// Whether the selected object is a directory.
     pub is_dir: bool,
+    /// Whether all write permission bits are disabled.
+    pub read_only: bool,
+    /// Whether the name is hidden.
+    pub hidden: bool,
+    /// Whether the object is a symbolic link.
+    pub is_symlink: bool,
+    /// The symbolic link target, if readable.
+    pub link_target: Option<PathBuf>,
     /// Apply the selected mode to descendants as well.
     pub recursive: bool,
     /// File length or the sum of regular files below a directory.
@@ -1159,12 +1167,12 @@ pub fn read_dir(dir: &Path, mime: &MimeDb) -> std::io::Result<Vec<Item>> {
     for entry in read.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
         let path = entry.path();
-        let Ok(link_metadata) = entry.metadata() else {
+        let Ok(link_metadata) = std::fs::symlink_metadata(&path) else {
             continue;
         };
         let is_symlink = link_metadata.file_type().is_symlink();
         let metadata = if is_symlink {
-            std::fs::metadata(&path).unwrap_or(link_metadata)
+            std::fs::metadata(&path).unwrap_or_else(|_| link_metadata.clone())
         } else {
             link_metadata
         };
