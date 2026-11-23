@@ -518,9 +518,10 @@ impl FilesWindow {
             }
         }
         self.reveal.retain(|path| !revealed.contains(path));
-        if let Some(path) = self.pending_rename.take()
-            && let Some(index) = self.items.iter().position(|item| item.path == path)
+        if let Some(path) = self.pending_rename.as_ref()
+            && let Some(index) = self.items.iter().position(|item| &item.path == path)
         {
+            self.pending_rename = None;
             let name = self.items[index].name.clone();
             self.selection.clear();
             self.selection.insert(index);
