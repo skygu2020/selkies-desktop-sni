@@ -91,6 +91,10 @@ pub enum Hit {
     SortButton,
     /// A sidebar place.
     Place(usize),
+    /// Expand or collapse a directory in the quick-access tree.
+    SidebarToggle(usize),
+    /// Navigate to a directory in the quick-access tree.
+    SidebarItem(usize),
     /// An item of the listing.
     Item(usize),
     /// A list column header.
@@ -249,6 +253,40 @@ fn crumb_rects(fonts: &mut Fonts, dir: &Path, scale: i32, path: Rect) -> Vec<(us
         x += width + CRUMB_GAP;
     }
     rects
+}
+
+
+#[derive(Clone)]
+struct SidebarRow {
+    path: PathBuf, name: String, depth: usize, place: Option<usize>,
+    icon: &'static str, expanded: bool, has_children: bool, loading: bool,
+}
+
+fn sidebar_rows(w: &FilesWindow, places: &[files::Place]) -> Vec<SidebarRow> {
+    fn append_children(w: &FilesWindow, path: &Path, depth: usize, rows: &mut Vec<SidebarRow>) {
+        let Some(children) = w.sidebar_dirs.get(path) else { return };
+        for item in children {
+            let expanded = w.sidebar_expanded.contains(&item.path);
+            let has_children = item.is_dir && !item.is_symlink;
+            rows.push(SidebarRow { path: item.path.clone(), name: item.name.clone(), depth,
+                place: None, icon: "folder", expanded, has_children,
+                loading: w.sidebar_loading.contains(&item.path) });
+            if expanded && has_children { append_children(w, &item.path, depth + 1, rows); }
+        }
+    }
+    let mut rows = Vec::new();
+    for (index, place) in places.iter().enumerate() {
+        let expanded = w.sidebar_expanded.contains(&place.path);
+        rows.push(SidebarRow { path: place.path.clone(), name: place.name.clone(), depth: 0,
+            place: Some(index), icon: place.icon, expanded, has_children: place.path.is_dir(),
+            loading: w.sidebar_loading.contains(&place.path) });
+        if expanded { append_children(w, &place.path, 1, &mut rows); }
+    }
+    rows
+}
+
+fn sidebar_row_count(w: &FilesWindow, places: &[files::Place]) -> usize {
+    sidebar_rows(w, places).len()
 }
 
 /// Columns of the icon grid for a content width.
@@ -623,15 +661,22 @@ pub fn hit(d: &mut Desktop, id: u32, x: f64, y: f64) -> Hit {
     if layout.path.contains(x, y) {
         return Hit::PathField;
     }
+    let sidebar_count = sidebar_row_count(w, &d.files.places);
     for area in [ScrollArea::Sidebar, ScrollArea::Content] {
-        if scrollbar(w, &layout, area, d.files.places.len()).is_some_and(|bar| bar.track.contains(x, y)) {
+        if scrollbar(w, &layout, area, sidebar_count).is_some_and(|bar| bar.track.contains(x, y)) {
             return Hit::Scrollbar(area);
         }
     }
     if layout.sidebar.w > 0 && layout.sidebar.contains(x, y) {
         let row = ((y - layout.sidebar.y as f64 - PAD as f64 + w.sidebar_scroll) / PLACE_ROW as f64).floor();
-        if row >= 0.0 && (row as usize) < d.files.places.len() {
-            return Hit::Place(row as usize);
+        let rows = sidebar_rows(w, &d.files.places);
+        if row >= 0.0 && (row as usize) < rows.len() {
+            let index = row as usize;
+            let item = &rows[index];
+            let indent = (item.depth as i32 * 14).min(70);
+            let arrow_right = layout.sidebar.x + PAD + 3 + indent + 14;
+            if item.has_children && x < arrow_right as f64 { return Hit::SidebarToggle(index); }
+            return if let Some(place) = item.place { Hit::Place(place) } else { Hit::SidebarItem(index) };
         }
         return Hit::None;
     }
@@ -709,7 +754,7 @@ fn text_cursor_at_x(
 /// * `x` - Pointer X.
 /// * `y` - Pointer Y.
 pub fn pointer_motion(d: &mut Desktop, id: u32, x: f64, y: f64) {
-    let places = d.files.places.len();
+    let places = d.files.window(id).map(|w| sidebar_row_count(w, &d.files.places)).unwrap_or(0);
     let rename_state = d.files.window(id).and_then(|w| {
         w.rename.as_ref().filter(|rename| rename.selecting).map(|rename| {
             let geometry = layout(w);
@@ -947,7 +992,8 @@ pub fn pointer_button(
         }
         hit = self::hit(d, id, x, y);
     }
-    let places = d.files.places.len();
+    let sidebar_rows = d.files.window(id).map(|w| sidebar_rows(w, &d.files.places)).unwrap_or_default();
+    let places = sidebar_rows.len();
     let Some(w) = d.files.window_mut(id) else {
         return;
     };
@@ -1179,6 +1225,19 @@ pub fn pointer_button(
                     d.files.navigate(id, &path);
                 }
             }
+            Hit::SidebarToggle(i) => {
+                if let Some(row) = sidebar_rows.get(i) {
+                    let path = row.path.clone();
+                    if w.sidebar_expanded.contains(&path) { d.files.collapse_sidebar(id, &path); }
+                    else { d.files.expand_sidebar(id, &path); }
+                }
+            }
+            Hit::SidebarItem(i) => {
+                if let Some(row) = sidebar_rows.get(i) {
+                    let path = row.path.clone();
+                    d.files.navigate(id, &path);
+                }
+            }
             Hit::Header(i) => {
                 let layout = layout(w);
                 if let Some((key, _)) = columns(layout.header).get(i) {
@@ -1271,7 +1330,7 @@ pub fn pointer_button(
                     }
                 }
             }
-            Hit::MenuRow(_) | Hit::SubmenuRow(_) | Hit::Confirm(_) | Hit::TransferConfirm(_) | Hit::Property(_) | Hit::None => {}
+            Hit::MenuRow(_) | Hit::SubmenuRow(_) | Hit::Confirm(_) | Hit::TransferConfirm(_) | Hit::Property(_) | Hit::SidebarToggle(_) | Hit::SidebarItem(_) | Hit::None => {}
         },
         Button::Right => match hit {
             Hit::Item(i) => {
@@ -2035,7 +2094,7 @@ pub fn pointer_axis(d: &mut Desktop, id: u32, x: f64, y: f64, delta: f64) {
     let layout = layout(w);
     let step = delta.signum() * ui::SCROLL_STEP;
     if layout.sidebar.w > 0 && layout.sidebar.contains(x, y) {
-        let content = places as f64 * PLACE_ROW as f64 + PAD as f64 * 2.0;
+        let content = sidebar_row_count(w, &d.files.places) as f64 * PLACE_ROW as f64 + PAD as f64 * 2.0;
         let max = (content - layout.sidebar.h as f64).max(0.0);
         w.sidebar_scroll = (w.sidebar_scroll + step).clamp(0.0, max);
     } else if layout.content.contains(x, y) || layout.header.contains(x, y) {
@@ -2828,8 +2887,8 @@ pub fn draw(d: &mut Desktop, id: u32, canvas: &mut Canvas<'_>) {
         View::Icons => draw_grid(d, index, canvas, &layout, hover, scale),
         View::List => draw_list(d, index, canvas, &layout, hover, scale),
     }
-    let places = d.files.places.len();
     let w = &d.files.windows[index];
+    let places = sidebar_row_count(w, &d.files.places);
     for area in [ScrollArea::Sidebar, ScrollArea::Content] {
         if let Some(bar) = scrollbar(w, &layout, area, places) {
             let active =
@@ -2998,66 +3057,41 @@ fn draw_toolbar(
     draw_sort_glyph(canvas, layout.sort, ui::text());
 }
 
-/// Draws the sidebar places.
-fn draw_sidebar(
-    d: &mut Desktop,
-    index: usize,
-    canvas: &mut Canvas<'_>,
-    layout: &Layout,
-    hover: Hit,
-    scale: i32,
-) {
+/// Draws the quick-access places and their lazily loaded directory trees.
+fn draw_sidebar(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, layout: &Layout, hover: Hit, scale: i32) {
     canvas.fill_rect(layout.sidebar, rgba(0, 0, 0, 0x30));
-    canvas.fill_rect(
-        Rect::new(layout.sidebar.right() - 1, layout.sidebar.y, 1, layout.sidebar.h),
-        ui::separator(),
-    );
-    let (dir, sidebar_scroll, drop_target) = {
+    canvas.fill_rect(Rect::new(layout.sidebar.right() - 1, layout.sidebar.y, 1, layout.sidebar.h), ui::separator());
+    let (dir, scroll, drop_target, rows) = {
         let w = &d.files.windows[index];
-        (w.dir.clone(), w.sidebar_scroll, w.drop_target)
+        (w.dir.clone(), w.sidebar_scroll, w.drop_target, sidebar_rows(w, &d.files.places))
     };
     canvas.clip(layout.sidebar);
-    let places = d.files.places.clone();
-    for (i, place) in places.iter().enumerate() {
-        let y = layout.sidebar.y + PAD + i as i32 * PLACE_ROW - sidebar_scroll as i32;
-        let rect = Rect::new(
-            layout.sidebar.x + PAD,
-            y,
-            layout.sidebar.w - 2 * PAD - 1,
-            PLACE_ROW,
-        );
-        let current = place.path == dir;
-        if drop_target == Some(DropTarget::Place(i)) {
+    for (i, row) in rows.iter().enumerate() {
+        let y = layout.sidebar.y + PAD + i as i32 * PLACE_ROW - scroll as i32;
+        if y + PLACE_ROW < layout.sidebar.y || y > layout.sidebar.bottom() { continue; }
+        let rect = Rect::new(layout.sidebar.x + PAD, y, layout.sidebar.w - 2 * PAD - 1, PLACE_ROW);
+        let current = row.path == dir;
+        let place_drop = row.place.is_some_and(|p| drop_target == Some(DropTarget::Place(p)));
+        if place_drop {
             canvas.fill_rounded(rect, 6.0, ui::accent_alpha(0x50));
             canvas.stroke_rounded(rect, 6.0, 1.0, ui::accent());
-        } else if current {
-            canvas.fill_rounded(rect, 6.0, ui::active_bg());
-        } else if hover == Hit::Place(i) {
+        } else if current { canvas.fill_rounded(rect, 6.0, ui::active_bg()); }
+        else if row.place.is_some_and(|p| hover == Hit::Place(p)) || hover == Hit::SidebarItem(i) || hover == Hit::SidebarToggle(i) {
             canvas.fill_rounded(rect, 6.0, ui::hover_bg());
         }
-        let icon_rect = Rect::new(
-            rect.x + 8,
-            rect.y + (PLACE_ROW - ui::ICON_SIZE) / 2,
-            ui::ICON_SIZE,
-            ui::ICON_SIZE,
-        );
-        if let Some(icon) = d
-            .icons
-            .get(place.icon, (ui::ICON_SIZE * scale) as u32)
-            .or_else(|| d.icons.get("folder", (ui::ICON_SIZE * scale) as u32))
-        {
+        let indent = (row.depth as i32 * 14).min(70);
+        let arrow = Rect::new(rect.x + 3 + indent, rect.y, 14, rect.h);
+        if row.has_children {
+            let glyph = if row.loading { "…" } else if row.expanded { "v" } else { ">" };
+            ui::label(canvas, &mut d.fonts, glyph, arrow, ui::FILE_FONT_SIZE, false, Align::Center, ui::text());
+        }
+        let icon_rect = Rect::new(rect.x + 18 + indent, rect.y + (PLACE_ROW - ui::ICON_SIZE) / 2, ui::ICON_SIZE, ui::ICON_SIZE);
+        if let Some(icon) = d.icons.get(row.icon, (ui::ICON_SIZE * scale) as u32).or_else(|| d.icons.get("folder", (ui::ICON_SIZE * scale) as u32)) {
             canvas.draw_image_fit(&icon, icon_rect);
         }
-        ui::label(
-            canvas,
-            &mut d.fonts,
-            &place.name,
-            Rect::new(icon_rect.right() + 8, rect.y, rect.w - 34, rect.h),
-            ui::FILE_FONT_SIZE,
-            current,
-            Align::Left,
-            ui::text(),
-        );
+        ui::label(canvas, &mut d.fonts, &row.name,
+            Rect::new(icon_rect.right() + 5, rect.y, (rect.right() - icon_rect.right() - 7).max(1), rect.h),
+            ui::FILE_FONT_SIZE, current, Align::Left, ui::text());
     }
     canvas.reset_clip();
 }
