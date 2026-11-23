@@ -510,7 +510,6 @@ impl FilesWindow {
             .all
             .iter()
             .filter(|item| self.show_hidden || !item.hidden)
-            .filter(|item| self.show_hidden || !item.hidden)
             .filter(|item| {
                 picker_mimes
                     .as_ref()
