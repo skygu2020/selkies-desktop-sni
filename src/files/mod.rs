@@ -387,6 +387,8 @@ pub struct FilesWindow {
     reveal: Vec<PathBuf>,
     /// Whether the selected cursor should be scrolled into view on the next draw.
     pub reveal_cursor: bool,
+    /// The path to begin renaming after it appears in the next directory scan.
+    pending_rename: Option<PathBuf>,
     /// A press waiting to become a click or a drag.
     pub press: Option<Press>,
     /// A rectangular selection gesture in the listing.
@@ -463,6 +465,15 @@ impl FilesWindow {
         display_name(&self.dir)
     }
 
+    /// Selects a newly created item and starts rename when the asynchronous
+    /// directory scan discovers it.
+    pub fn reveal_and_rename(&mut self, path: PathBuf) {
+        self.filter.clear();
+        self.reveal = vec![path.clone()];
+        self.pending_rename = Some(path);
+        self.dirty = true;
+    }
+
     /// Applies the hidden flag, the typed filter and the sort to the listing,
     /// keeping the selection on the same paths where they remain.
     pub fn refilter(&mut self) {
@@ -507,6 +518,25 @@ impl FilesWindow {
             }
         }
         self.reveal.retain(|path| !revealed.contains(path));
+        if let Some(path) = self.pending_rename.take()
+            && let Some(index) = self.items.iter().position(|item| item.path == path)
+        {
+            let name = self.items[index].name.clone();
+            self.selection.clear();
+            self.selection.insert(index);
+            self.cursor = Some(index);
+            self.rename = Some(Rename {
+                index,
+                text: name.clone(),
+                cursor: name.chars().count(),
+                anchor: Some(0),
+                last_click: None,
+                selecting: false,
+                caret_visible: true,
+                blink_at: Instant::now() + Duration::from_millis(500),
+            });
+            self.reveal_cursor = true;
+        }
         if let Some(rename) = &self.rename
             && rename.index >= self.items.len()
         {
@@ -624,6 +654,7 @@ impl Manager {
             loading: true,
             reveal,
             reveal_cursor: false,
+            pending_rename: None,
             press: None,
             selection_drag: None,
             rename: None,

@@ -1882,25 +1882,13 @@ fn new_folder(d: &mut Desktop, id: u32) {
         );
         return;
     }
-    d.files.refresh(id);
-    if let Some(w) = d.files.window_mut(id)
-        && let Some(index) = w.items.iter().position(|i| i.path == path)
-    {
-        w.selection.clear();
-        w.selection.insert(index);
-        w.cursor = Some(index);
-        w.rename = Some(Rename {
-            index,
-            text: files::ops::file_name(&path),
-            cursor: files::ops::file_name(&path).chars().count(),
-            anchor: Some(0),
-            last_click: None,
-            selecting: false,
-            caret_visible: true,
-            blink_at: Instant::now() + std::time::Duration::from_millis(500),
-        });
-        scroll_to(w, index);
+    if let Some(w) = d.files.window_mut(id) {
+        if !w.editable() {
+            return;
+        }
+        w.reveal_and_rename(path);
     }
+    d.files.refresh(id);
 }
 
 /// Creates an empty file and starts renaming it.
@@ -1914,25 +1902,10 @@ fn new_file(d: &mut Desktop, id: u32) {
     let path = files::ops::unique_name(&w.dir, tr("New file"), false);
     match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
         Ok(_) => {
-            d.files.refresh(id);
-            if let Some(w) = d.files.window_mut(id)
-                && let Some(index) = w.items.iter().position(|item| item.path == path)
-            {
-                w.selection.clear();
-                w.selection.insert(index);
-                w.cursor = Some(index);
-                w.rename = Some(Rename {
-                    index,
-                    text: files::ops::file_name(&path),
-                    cursor: files::ops::file_name(&path).chars().count(),
-                    anchor: Some(0),
-                    last_click: None,
-                    selecting: false,
-                    caret_visible: true,
-                    blink_at: Instant::now() + std::time::Duration::from_millis(500),
-                });
-                scroll_to(w, index);
+            if let Some(w) = d.files.window_mut(id) {
+                w.reveal_and_rename(path);
             }
+            d.files.refresh(id);
         }
         Err(error) => status(
             d,
