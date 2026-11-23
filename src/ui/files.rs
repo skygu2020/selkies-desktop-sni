@@ -694,6 +694,7 @@ pub fn pointer_button(
                     d.files.navigate(id, &path);
                 }
             }
+            Hit::FindField => { w.find_active = true; w.path_edit = None; }
             Hit::PathField => {
                 if w.path_edit.is_none() {
                     w.path_edit = Some(w.dir.to_string_lossy().to_string());
@@ -1426,6 +1427,16 @@ pub fn key(d: &mut Desktop, id: u32, key: Key, modifiers: Modifiers) {
         return;
     }
     let layout = layout(w);
+    if w.find_active {
+        match key {
+            Key::Char(c) if !modifiers.ctrl => { w.find.push(c); w.refilter(); }
+            Key::Backspace => { w.find.pop(); w.refilter(); }
+            Key::Enter => w.find_active = false,
+            Key::Escape => { w.find.clear(); w.find_active = false; w.refilter(); }
+            _ => {}
+        }
+        return;
+    }
     let count = w.items.len();
     match key {
         Key::Char(c) => {
