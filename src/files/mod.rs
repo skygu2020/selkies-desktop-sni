@@ -1012,6 +1012,7 @@ impl Manager {
                                         .collect());
                                 }
                                 Err(error) => {
+                                    window.sidebar_expanded.remove(&path);
                                     window.status = Some((format!("Cannot read {}: {error}", display_name(&path)), Instant::now()));
                                 }
                             }
