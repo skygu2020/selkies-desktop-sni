@@ -367,6 +367,12 @@ pub struct FilesWindow {
     pub scroll: f64,
     /// Scroll offset of the sidebar.
     pub sidebar_scroll: f64,
+    /// Expanded folders in the quick-access tree.
+    pub sidebar_expanded: HashSet<PathBuf>,
+    /// Cached child directories for expanded quick-access nodes.
+    pub sidebar_dirs: HashMap<PathBuf, Vec<Item>>,
+    /// Directories whose quick-access children are being read.
+    pub sidebar_loading: HashSet<PathBuf>,
     /// The view.
     pub view: View,
     /// The sort key.
@@ -688,6 +694,9 @@ impl Manager {
             cursor: None,
             scroll: 0.0,
             sidebar_scroll: 0.0,
+            sidebar_expanded: HashSet::new(),
+            sidebar_dirs: HashMap::new(),
+            sidebar_loading: HashSet::new(),
             view: defaults.view,
             sort: defaults.sort,
             ascending: true,
@@ -834,6 +843,24 @@ impl Manager {
         self.worker.request_directory_scan(id, generation, path, self.mime.clone());
     }
 
+    /// Requests the immediate child directories for a quick-access tree node.
+    pub fn expand_sidebar(&mut self, id: u32, path: &Path) {
+        let Some(window) = self.window_mut(id) else { return };
+        if !window.sidebar_expanded.insert(path.to_path_buf()) { return; }
+        if window.sidebar_dirs.contains_key(path) || window.sidebar_loading.contains(path) { return; }
+        window.sidebar_loading.insert(path.to_path_buf());
+        let mime = self.mime.clone();
+        self.worker.request_sidebar_scan(id, path.to_path_buf(), mime);
+    }
+
+    /// Collapses a quick-access tree node without discarding its cached children.
+    pub fn collapse_sidebar(&mut self, id: u32, path: &Path) {
+        if let Some(window) = self.window_mut(id) {
+            window.sidebar_expanded.remove(path);
+            window.dirty = true;
+        }
+    }
+
     /// Adds an inotify watch on a folder.
     fn watch(&self, dir: &Path) -> i32 {
         if self.inotify < 0 {
@@ -972,6 +999,24 @@ impl Manager {
                     {
                         window.search_results = results;
                         window.refilter();
+                    }
+                }
+                Message::SidebarRead { window_id, path, result } => {
+                    if let Some(window) = self.window_mut(window_id) {
+                        window.sidebar_loading.remove(&path);
+                        if window.sidebar_expanded.contains(&path) {
+                            match result {
+                                Ok(items) => {
+                                    window.sidebar_dirs.insert(path, items.into_iter()
+                                        .filter(|item| item.is_dir && !item.is_symlink && !item.hidden)
+                                        .collect());
+                                }
+                                Err(error) => {
+                                    window.status = Some((format!("Cannot read {}: {error}", display_name(&path)), Instant::now()));
+                                }
+                            }
+                            window.dirty = true;
+                        }
                     }
                 }
                 Message::DirectoryRead { window_id, generation, path, result } => {
