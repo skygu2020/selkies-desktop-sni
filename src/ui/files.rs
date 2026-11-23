@@ -428,8 +428,8 @@ fn submenu_row_at(rect: Rect, x: f64, y: f64, count: usize) -> Option<usize> {
 
 /// The properties dialog and its two buttons.
 fn properties_rects(w: &FilesWindow) -> (Rect, Rect, Rect) {
-    let width = 460.min(w.geometry.width - 20);
-    let height = 450.min(w.geometry.height - 20);
+    let width = 480.min(w.geometry.width - 20);
+    let height = 500.min(w.geometry.height - 20);
     let frame = Rect::new((w.geometry.width - width) / 2, (w.geometry.height - height) / 2, width, height);
     let apply = Rect::new(frame.right() - 16 - 90, frame.bottom() - 16 - 30, 90, 30);
     let cancel = Rect::new(apply.x - 8 - 90, apply.y, 90, 30);
@@ -439,11 +439,15 @@ fn properties_rects(w: &FilesWindow) -> (Rect, Rect, Rect) {
 fn property_bit_rect(frame: Rect, bit: usize) -> Rect {
     let row = bit / 3;
     let column = bit % 3;
-    Rect::new(frame.x + 162 + column as i32 * 92, frame.y + 270 + row as i32 * 32, 24, 24)
+    Rect::new(frame.x + 162 + column as i32 * 92, frame.y + 292 + row as i32 * 32, 24, 24)
 }
 
 fn property_recursive_rect(frame: Rect) -> Rect {
-    Rect::new(frame.x + 16, frame.y + 378, frame.w - 32, 24)
+    Rect::new(frame.x + 16, frame.y + 426, frame.w - 32, 24)
+}
+
+fn property_toggle_rect(frame: Rect, toggle: usize) -> Rect {
+    Rect::new(frame.x + 16 + (toggle % 2) as i32 * 220, frame.y + 238 + (toggle / 2) as i32 * 28, 200, 24)
 }
 
 /// Apply a permission mode to a path and optionally all descendants.
@@ -566,6 +570,8 @@ pub fn hit(d: &mut Desktop, id: u32, x: f64, y: f64) -> Hit {
         if let Some(properties) = &w.properties
             && properties.can_modify
         {
+            if property_toggle_rect(frame, 12).contains(x, y) { return Hit::Property(12); }
+            if property_toggle_rect(frame, 13).contains(x, y) { return Hit::Property(13); }
             for bit in 0..9 {
                 if property_bit_rect(frame, bit).contains(x, y) {
                     return Hit::Property(bit);
@@ -1000,6 +1006,17 @@ pub fn pointer_button(
     if w.properties.is_some() {
         if button == Button::Left {
             match hit {
+                Hit::Property(12) => {
+                    if let Some(properties) = d.files.window_mut(id).and_then(|w| w.properties.as_mut()) && properties.can_modify {
+                        properties.read_only = !properties.read_only;
+                        if properties.read_only { properties.mode &= !0o222; } else { properties.mode |= 0o200; }
+                    }
+                }
+                Hit::Property(13) => {
+                    if let Some(properties) = d.files.window_mut(id).and_then(|w| w.properties.as_mut()) && properties.can_modify {
+                        properties.hidden = !properties.hidden;
+                    }
+                }
                 Hit::Property(bit @ 0..=8) => {
                     if let Some(properties) = d.files.window_mut(id).and_then(|w| w.properties.as_mut())
                         && properties.can_modify
@@ -1023,7 +1040,14 @@ pub fn pointer_button(
                         if !properties.can_modify {
                             status(d, id, tr("Cannot change permissions").to_string());
                         } else {
-                            match apply_property_permissions(&properties.path, properties.mode, properties.recursive) {
+                            let permission_result = if properties.is_symlink { Ok(()) } else { apply_property_permissions(&properties.path, properties.mode, properties.recursive) };
+                            let hidden_result = if properties.hidden != properties.path.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')) {
+                                let Some(name) = properties.path.file_name() else { continue; };
+                                let name = name.to_string_lossy();
+                                let new_name = if properties.hidden { format!(".{name}") } else { name.trim_start_matches('.').to_string() };
+                                std::fs::rename(&properties.path, properties.path.with_file_name(new_name))
+                            } else { Ok(()) };
+                            match permission_result.and(hidden_result) {
                                 Ok(()) => d.files.refresh(id),
                                 Err(error) => status(d, id, trf(
                                     "Cannot change permissions: {error}",
@@ -1662,28 +1686,25 @@ fn perform(d: &mut Desktop, id: u32, action: MenuAction) {
             );
         }
         MenuAction::Properties(path) => {
-            if let Ok(metadata) = std::fs::metadata(&path) {
+            if let Ok(link_metadata) = std::fs::symlink_metadata(&path) {
                 use std::os::unix::fs::{MetadataExt, PermissionsExt};
+                let is_symlink = link_metadata.file_type().is_symlink();
+                let metadata = if is_symlink { std::fs::metadata(&path).unwrap_or_else(|_| link_metadata.clone()) } else { link_metadata };
                 let is_dir = metadata.is_dir();
                 let euid = unsafe { libc::geteuid() };
                 let can_modify = euid == 0 || metadata.uid() == euid;
-                let size = if is_dir { None } else { Some(metadata.len()) };
+                let size = if is_dir || is_symlink && !path.exists() { None } else { Some(metadata.len()) };
+                let hidden = path.file_name().is_some_and(|name| name.to_string_lossy().starts_with('.'));
+                let link_target = is_symlink.then(|| std::fs::read_link(&path).ok()).flatten();
+                let mode = metadata.permissions().mode() & 0o777;
                 if let Some(w) = d.files.window_mut(id) {
                     w.properties = Some(Properties {
-                        path: path.clone(),
-                        mode: metadata.permissions().mode() & 0o777,
-                        uid: metadata.uid(),
-                        gid: metadata.gid(),
-                        can_modify,
-                        is_dir,
-                        recursive: false,
-                        size,
-                        size_pending: is_dir,
+                        path: path.clone(), mode, uid: metadata.uid(), gid: metadata.gid(),
+                        can_modify, is_dir, read_only: mode & 0o222 == 0, hidden,
+                        is_symlink, link_target, recursive: false, size, size_pending: is_dir,
                     });
                 }
-                if is_dir {
-                    d.files.worker.request_directory_size(path);
-                }
+                if is_dir { d.files.worker.request_directory_size(path); }
             } else {
                 status(d, id, tr("Cannot read file properties").to_string());
             }
@@ -3573,14 +3594,18 @@ fn draw_properties(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover
     ui::label(canvas, &mut d.fonts, tr("Properties"), Rect::new(frame.x + 16, frame.y + 10, frame.w - 32, 28), ui::FILE_FONT_SIZE, true, Align::Left, ui::text());
     let name = files::ops::file_name(&properties.path);
     ui::label(canvas, &mut d.fonts, &name, Rect::new(frame.x + 16, frame.y + 42, frame.w - 32, 24), ui::FILE_FONT_SIZE, true, Align::Left, ui::text());
-    let metadata = std::fs::metadata(&properties.path).ok();
-    let kind = if metadata.as_ref().is_some_and(|m| m.is_dir()) { tr("Folder") } else { tr("File") };
+    let link_metadata = std::fs::symlink_metadata(&properties.path).ok();
+    let metadata = link_metadata.as_ref().map(|link| if link.file_type().is_symlink() { std::fs::metadata(&properties.path).unwrap_or_else(|_| link.clone()) } else { link.clone() });
+    let kind = if properties.is_symlink { tr("Symbolic link") } else if metadata.as_ref().is_some_and(|m| m.is_dir()) { tr("Folder") } else { tr("File") };
     let size = if properties.size_pending {
         "Calculating…".to_string()
     } else {
         properties.size.map(files::human_size).unwrap_or_else(|| "—".to_string())
     };
     ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Path"), properties.path.display()), Rect::new(frame.x + 16, frame.y + 70, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
+    if properties.is_symlink {
+        ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Target"), properties.link_target.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| tr("Unavailable").to_string())), Rect::new(frame.x + 16, frame.y + 92, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
+    }
     let format_timestamp = |time: std::time::SystemTime| {
         time.duration_since(std::time::UNIX_EPOCH)
             .ok()
@@ -3589,17 +3614,28 @@ fn draw_properties(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover
     };
     let created = metadata.as_ref().and_then(|m| m.created().ok()).map(format_timestamp).unwrap_or_else(|| "—".to_string());
     let modified = metadata.as_ref().and_then(|m| m.modified().ok()).map(format_timestamp).unwrap_or_else(|| "—".to_string());
-    ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Created"), created), Rect::new(frame.x + 16, frame.y + 92, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
-    ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Modified"), modified), Rect::new(frame.x + 16, frame.y + 114, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
-    ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Type"), kind), Rect::new(frame.x + 16, frame.y + 136, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
-    ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Size"), size), Rect::new(frame.x + 16, frame.y + 158, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
-    ui::label(canvas, &mut d.fonts, &format!("UID: {}    GID: {}", properties.uid, properties.gid), Rect::new(frame.x + 16, frame.y + 182, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
-    ui::label(canvas, &mut d.fonts, &format!("{}: {:04o}", tr("Permissions"), properties.mode), Rect::new(frame.x + 16, frame.y + 204, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
+    let offset = if properties.is_symlink { 22 } else { 0 };
+    ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Created"), created), Rect::new(frame.x + 16, frame.y + 92 + offset, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
+    ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Modified"), modified), Rect::new(frame.x + 16, frame.y + 114 + offset, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
+    ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Type"), kind), Rect::new(frame.x + 16, frame.y + 136 + offset, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
+    ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Size"), size), Rect::new(frame.x + 16, frame.y + 158 + offset, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
+    ui::label(canvas, &mut d.fonts, &format!("UID: {}    GID: {}", properties.uid, properties.gid), Rect::new(frame.x + 16, frame.y + 182 + offset, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
+    ui::label(canvas, &mut d.fonts, &format!("{}: {:04o}", tr("Permissions"), properties.mode), Rect::new(frame.x + 16, frame.y + 204 + offset, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
     for (column, label) in ["Read", "Write", "Execute"].iter().enumerate() {
-        ui::label(canvas, &mut d.fonts, tr(label), Rect::new(frame.x + 132 + column as i32 * 92, frame.y + 250, 84, 20), ui::FILE_FONT_SIZE, true, Align::Center, ui::text());
+        ui::label(canvas, &mut d.fonts, tr(label), Rect::new(frame.x + 132 + column as i32 * 92, frame.y + 272 + offset, 84, 20), ui::FILE_FONT_SIZE, true, Align::Center, ui::text());
     }
     for (row, label) in ["Owner", "Group", "Others"].iter().enumerate() {
-        ui::label(canvas, &mut d.fonts, tr(label), Rect::new(frame.x + 16, frame.y + 270 + row as i32 * 32, 108, 24), ui::FILE_FONT_SIZE, false, Align::Left, ui::text());
+        ui::label(canvas, &mut d.fonts, tr(label), Rect::new(frame.x + 16, frame.y + 292 + offset + row as i32 * 32, 108, 24), ui::FILE_FONT_SIZE, false, Align::Left, ui::text());
+    }
+    for (toggle in 0..2 {
+        let rect = property_toggle_rect(frame, toggle);
+        let checked = if toggle == 0 { properties.read_only } else { properties.hidden };
+        let label = if toggle == 0 { tr("Read-only") } else { tr("Hidden") };
+        let color = if properties.can_modify { ui::separator() } else { ui::text_dim() };
+        canvas.stroke_rounded(Rect::new(rect.x, rect.y + 2, 18, 18), 3.0, 1.0, color);
+        if checked { ui::label(canvas, &mut d.fonts, "✓", Rect::new(rect.x, rect.y + 1, 18, 18), ui::FILE_FONT_SIZE, true, Align::Center, if properties.can_modify { ui::accent() } else { ui::text_dim() }); }
+        ui::label(canvas, &mut d.fonts, label, Rect::new(rect.x + 26, rect.y, rect.w - 26, 22), ui::FILE_FONT_SIZE, false, Align::Left, if properties.can_modify { ui::text() } else { ui::text_dim() });
+        if properties.can_modify && hover == Hit::Property(12 + toggle) { canvas.stroke_rounded(rect.inflate(2), 4.0, 1.0, ui::accent()); }
     }
     for bit in 0..9 {
         let rect = property_bit_rect(frame, bit);
@@ -3613,7 +3649,7 @@ fn draw_properties(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover
             canvas.stroke_rounded(rect.inflate(2), 5.0, 1.0, ui::accent());
         }
     }
-    if properties.is_dir {
+    if properties.is_dir && !properties.is_symlink {
         let recursive = property_recursive_rect(frame);
         canvas.stroke_rounded(Rect::new(recursive.x, recursive.y + 2, 18, 18), 3.0, 1.0, if properties.can_modify { ui::separator() } else { ui::text_dim() });
         if properties.recursive {
