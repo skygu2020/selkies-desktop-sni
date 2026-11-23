@@ -238,6 +238,8 @@ pub struct Desktop {
     /// Selected desktop icon.
     pub desktop_selection: Option<usize>,
     last_click: Option<(u32, usize)>,
+    /// A taskbar window being dragged: stable window ID, press position, and whether it moved.
+    task_drag: Option<(u64, f64, f64, bool)>,
     /// Windows minimized by the show desktop button, to restore on the next press.
     pub shown_desktop: Vec<u64>,
     /// Volume, or `None` while audio is unavailable.
@@ -339,6 +341,7 @@ impl Desktop {
             settings: settings::SettingsState::default(),
             desktop_selection: None,
             last_click: None,
+            task_drag: None,
             shown_desktop: Vec::new(),
             volume: None,
             volume_drag: false,
@@ -1081,6 +1084,9 @@ impl Desktop {
             Event::ToplevelClosed { id } => {
                 if let Some(i) = self.toplevel_index(id) {
                     self.toplevels.remove(i);
+                    if self.task_drag.is_some_and(|(drag_id, _, _, _)| drag_id == id) {
+                        self.task_drag = None;
+                    }
                     self.shown_desktop.retain(|w| *w != id);
                     if let Popup::TaskMenu(t) = self.popup
                         && t >= i
@@ -1423,6 +1429,37 @@ impl Desktop {
         }
     }
 
+    /// Moves a taskbar button to the position under the pointer while dragging.
+    /// The window vector itself is reordered, keeping IDs stable for backend events.
+    fn task_drag_motion(&mut self, x: f64, y: f64) -> bool {
+        let Some((id, start_x, start_y, moved)) = self.task_drag else {
+            return false;
+        };
+        if !moved && (x - start_x).hypot(y - start_y) < 5.0 {
+            return false;
+        }
+        let Some(from) = self.toplevel_index(id) else {
+            self.task_drag = None;
+            return false;
+        };
+        let target = {
+            let layout = panel::layout(self);
+            layout.tasks.iter()
+                .find(|(_, rect)| rect.contains(x, y))
+                .map(|(index, _)| *index)
+        };
+        if let Some(to) = target
+            && to != from
+            && to < self.toplevels.len()
+        {
+            let window = self.toplevels.remove(from);
+            self.toplevels.insert(to.min(self.toplevels.len()), window);
+        }
+        self.task_drag = Some((id, start_x, start_y, true));
+        self.panel_dirty = true;
+        true
+    }
+
     /// Activates a window, restoring it when it is minimized, or minimizes it
     /// when it is already active.
     ///
@@ -1500,6 +1537,10 @@ impl Desktop {
         match surface {
             SurfaceId::Panel => {
                 self.pointer = (x, y);
+                if self.task_drag_motion(x, y) {
+                    self.set_hover(panel::hit(self, x, y));
+                    return;
+                }
                 if self.config.panel_autohide {
                     self.reveal_panel();
                 }
@@ -1551,6 +1592,17 @@ impl Desktop {
         time: u32,
         modifiers: Modifiers,
     ) {
+        if !pressed {
+            if let Some((id, _, _, moved)) = self.task_drag.take() {
+                if !moved {
+                    if let Some(index) = self.toplevel_index(id) {
+                        self.task_click(index);
+                    }
+                }
+                self.redraw_panel();
+                return;
+            }
+        }
         if let SurfaceId::Window(id) = surface {
             ui::files::pointer_button(self, id, x, y, button, pressed, time, modifiers);
             return;
@@ -1569,6 +1621,13 @@ impl Desktop {
             SurfaceId::Background(id) => self.background_click(id, x, y, button, time),
             SurfaceId::Panel => {
                 self.pointer = (x, y);
+                if button == Button::Left && self.popup == Popup::None
+                    && let Hover::Task(index) = panel::hit(self, x, y)
+                    && let Some(window) = self.toplevels.get(index)
+                {
+                    self.task_drag = Some((window.id, x, y, false));
+                    return;
+                }
                 if self.popup != Popup::None {
                     let inside_popup = match self.popup {
                         Popup::Menu => menu::click(self, x, y, button),
