@@ -1598,6 +1598,9 @@ impl Desktop {
         time: u32,
         modifiers: Modifiers,
     ) {
+        if !pressed && surface == SurfaceId::Panel {
+            self.task_drag_motion(x, y);
+        }
         if !pressed {
             if let Some((id, _, _, moved)) = self.task_drag.take() {
                 if !moved {
