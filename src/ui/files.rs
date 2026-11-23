@@ -2087,14 +2087,14 @@ fn scroll_to(w: &mut FilesWindow, index: usize) {
 /// * `y` - Pointer Y.
 /// * `delta` - Scroll amount, positive downwards.
 pub fn pointer_axis(d: &mut Desktop, id: u32, x: f64, y: f64, delta: f64) {
-    let places = d.files.places.len();
+    let sidebar_count = d.files.window(id).map(|w| sidebar_row_count(w, &d.files.places)).unwrap_or(0);
     let Some(w) = d.files.window_mut(id) else {
         return;
     };
     let layout = layout(w);
     let step = delta.signum() * ui::SCROLL_STEP;
     if layout.sidebar.w > 0 && layout.sidebar.contains(x, y) {
-        let content = sidebar_row_count(w, &d.files.places) as f64 * PLACE_ROW as f64 + PAD as f64 * 2.0;
+        let content = sidebar_count as f64 * PLACE_ROW as f64 + PAD as f64 * 2.0;
         let max = (content - layout.sidebar.h as f64).max(0.0);
         w.sidebar_scroll = (w.sidebar_scroll + step).clamp(0.0, max);
     } else if layout.content.contains(x, y) || layout.header.contains(x, y) {
