@@ -1534,6 +1534,12 @@ impl Desktop {
 
     /// Routes pointer motion to the surface's UI.
     fn pointer_motion(&mut self, surface: SurfaceId, x: f64, y: f64) {
+        if let Some((id, start_x, start_y, moved)) = self.task_drag
+            && !moved
+            && (x - start_x).hypot(y - start_y) >= 5.0
+        {
+            self.task_drag = Some((id, start_x, start_y, true));
+        }
         match surface {
             SurfaceId::Panel => {
                 self.pointer = (x, y);
