@@ -541,7 +541,12 @@ impl FilesWindow {
         };
         if !self.find.is_empty() || !needle.is_empty() {
             self.selection.clear();
-            if let Some(cursor) = self.cursor { self.selection.insert(cursor); }
+            if let Some(cursor) = self.cursor {
+                self.selection.insert(cursor);
+                self.reveal_cursor = true;
+            } else {
+                self.reveal_cursor = false;
+            }
         }
         let revealed: Vec<PathBuf> = self.reveal.iter().filter(|path| self.items.iter().any(|item| item.path.as_path() == path.as_path())).cloned().collect();
         for path in &revealed {
