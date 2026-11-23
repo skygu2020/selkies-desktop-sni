@@ -935,7 +935,18 @@ pub fn pointer_button(
         }
         return;
     }
-    let hit = hit(d, id, x, y);
+    let mut hit = hit(d, id, x, y);
+    // A right-click outside an open context menu should replace that menu,
+    // not merely dismiss it. Clear it before hit-testing so the new target
+    // is resolved against the underlying file view.
+    if button == Button::Right
+        && d.files.window(id).is_some_and(|w| w.menu.is_some())
+    {
+        if let Some(w) = d.files.window_mut(id) {
+            w.menu = None;
+        }
+        hit = hit(d, id, x, y);
+    }
     let places = d.files.places.len();
     let Some(w) = d.files.window_mut(id) else {
         return;
