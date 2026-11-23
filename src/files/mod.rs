@@ -369,10 +369,16 @@ pub struct FilesWindow {
     pub show_hidden: bool,
     /// The typed filter.
     pub filter: String,
-    /// Wildcard search in the current folder.
+    /// Recursive wildcard search query.
     pub find: String,
     /// Whether the wildcard search field has keyboard focus.
     pub find_active: bool,
+    /// Results returned by the recursive search worker.
+    pub search_results: Vec<Item>,
+    /// Generation used to discard obsolete recursive search results.
+    pub find_generation: u64,
+    /// Debounce deadline for the current recursive search query.
+    pub find_at: Option<Instant>,
     /// Folders visited, for back and forward.
     pub history: Vec<PathBuf>,
     /// Position in the history.
@@ -506,8 +512,8 @@ impl FilesWindow {
         }
         let needle = self.filter.to_lowercase();
         let picker_mimes: Option<Vec<&'static str>> = self.picker.as_ref().map(|p| p.mimes.clone());
-        let mut items: Vec<Item> = self
-            .all
+        let source = if self.find.is_empty() { &self.all } else { &self.search_results };
+        let mut items: Vec<Item> = source
             .iter()
             .filter(|item| self.show_hidden || !item.hidden)
             .filter(|item| {
@@ -527,9 +533,9 @@ impl FilesWindow {
             .map(|(i, _)| i)
             .collect();
         self.cursor = if !self.find.is_empty() {
-            self.items.iter().position(|item| glob_match(&self.find, &item.name))
+            (!self.items.is_empty()).then_some(0)
         } else if !needle.is_empty() {
-            self.items.iter().position(|item| item.name.to_lowercase().contains(&needle))
+            self.items.iter().position(|item| item.name.to_lowercase().starts_with(&needle))
         } else {
             cursor_path.and_then(|p| self.items.iter().position(|i| i.path == p))
         };
@@ -676,6 +682,9 @@ impl Manager {
             filter: String::new(),
             find: String::new(),
             find_active: false,
+            search_results: Vec::new(),
+            find_generation: 0,
+            find_at: None,
             history: Vec::new(),
             history_pos: 0,
             geometry: Geometry::default(),
@@ -735,6 +744,11 @@ impl Manager {
         window.cursor = None;
         window.scroll = 0.0;
         window.filter.clear();
+        window.find.clear();
+        window.find_active = false;
+        window.search_results.clear();
+        window.find_at = None;
+        window.find_generation = window.find_generation.wrapping_add(1);
         window.rename = None;
         window.menu = None;
         window.press = None;
@@ -932,6 +946,16 @@ impl Manager {
                         window.dirty = true;
                     }
                 }
+                Message::FindDone { window_id, generation, root, pattern, results } => {
+                    if let Some(window) = self.window_mut(window_id)
+                        && window.find_generation == generation
+                        && window.dir == root
+                        && window.find == pattern
+                    {
+                        window.search_results = results;
+                        window.refilter();
+                    }
+                }
                 Message::DirectoryRead { window_id, generation, path, result } => {
                     if let Some(window) = self.window_mut(window_id)
                         && window.scan_generation == generation
@@ -981,6 +1005,16 @@ impl Manager {
         for id in due {
             self.refresh(id);
         }
+        let searches: Vec<(u32, u64, PathBuf, String, bool)> = self.windows.iter_mut()
+            .filter_map(|window| {
+                if window.find_at.is_some_and(|at| at <= now) {
+                    window.find_at = None;
+                    Some((window.id, window.find_generation, window.dir.clone(), window.find.clone(), window.show_hidden))
+                } else { None }
+            }).collect();
+        for (id, generation, root, pattern, show_hidden) in searches {
+            self.worker.request_find(id, generation, root, pattern, show_hidden, self.mime.clone());
+        }
         for window in &mut self.windows {
             if window
                 .status
@@ -1006,6 +1040,7 @@ impl Manager {
         for window in &self.windows {
             for candidate in [
                 window.rescan_at,
+                window.find_at,
                 window.status.as_ref().map(|(_, since)| *since + STATUS_LINGER),
                 window.rename.as_ref().map(|rename| rename.blink_at),
             ]
