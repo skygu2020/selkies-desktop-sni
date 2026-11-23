@@ -2249,10 +2249,34 @@ pub fn key(d: &mut Desktop, id: u32, key: Key, modifiers: Modifiers) {
     }
     if w.find_active {
         match key {
-            Key::Char(c) if !modifiers.ctrl => { w.find.push(c); w.refilter(); }
-            Key::Backspace => { w.find.pop(); w.refilter(); }
+            Key::Char(c) if !modifiers.ctrl => {
+                w.find.push(c);
+                w.find_generation = w.find_generation.wrapping_add(1);
+                w.search_results.clear();
+                w.find_at = Some(std::time::Instant::now() + std::time::Duration::from_millis(120));
+                w.refilter();
+            }
+            Key::Backspace => {
+                if w.find.pop().is_some() {
+                    w.find_generation = w.find_generation.wrapping_add(1);
+                    if w.find.is_empty() {
+                        w.find_at = None;
+                        w.search_results.clear();
+                    } else {
+                        w.find_at = Some(std::time::Instant::now() + std::time::Duration::from_millis(120));
+                    }
+                    w.refilter();
+                }
+            }
             Key::Enter => w.find_active = false,
-            Key::Escape => { w.find.clear(); w.find_active = false; w.refilter(); }
+            Key::Escape => {
+                w.find.clear();
+                w.find_active = false;
+                w.find_generation = w.find_generation.wrapping_add(1);
+                w.find_at = None;
+                w.search_results.clear();
+                w.refilter();
+            }
             _ => {}
         }
         return;
@@ -2263,12 +2287,11 @@ pub fn key(d: &mut Desktop, id: u32, key: Key, modifiers: Modifiers) {
         Key::Char(c) => {
             w.filter.push(c);
             w.refilter();
-            if !w.items.is_empty() {
-                w.cursor = Some(0);
+            if let Some(cursor) = w.cursor {
                 w.selection.clear();
-                w.selection.insert(0);
+                w.selection.insert(cursor);
+                w.reveal_cursor = true;
             }
-            w.scroll = 0.0;
         }
         Key::Backspace => {
             if w.filter.pop().is_some() {
