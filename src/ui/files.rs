@@ -439,7 +439,7 @@ fn properties_rects(w: &FilesWindow) -> (Rect, Rect, Rect) {
 fn property_bit_rect(frame: Rect, bit: usize) -> Rect {
     let row = bit / 3;
     let column = bit % 3;
-    Rect::new(frame.x + 162 + column as i32 * 92, frame.y + 292 + row as i32 * 32, 24, 24)
+    Rect::new(frame.x + 162 + column as i32 * 92, frame.y + 320 + row as i32 * 32, 24, 24)
 }
 
 fn property_recursive_rect(frame: Rect) -> Rect {
@@ -1040,12 +1040,13 @@ pub fn pointer_button(
                         if !properties.can_modify {
                             status(d, id, tr("Cannot change permissions").to_string());
                         } else {
-                            let permission_result = if properties.is_symlink { Ok(()) } else { apply_property_permissions(&properties.path, properties.mode, properties.recursive) };
+                            let permission_result = if properties.is_symlink && !properties.path.exists() { Ok(()) } else { apply_property_permissions(&properties.path, properties.mode, properties.recursive) };
                             let hidden_result = if properties.hidden != properties.path.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')) {
-                                let Some(name) = properties.path.file_name() else { continue; };
-                                let name = name.to_string_lossy();
+                                if let Some(name) = properties.path.file_name() {
+                                    let name = name.to_string_lossy();
                                 let new_name = if properties.hidden { format!(".{name}") } else { name.trim_start_matches('.').to_string() };
-                                std::fs::rename(&properties.path, properties.path.with_file_name(new_name))
+                                    std::fs::rename(&properties.path, properties.path.with_file_name(new_name))
+                                } else { Ok(()) }
                             } else { Ok(()) };
                             match permission_result.and(hidden_result) {
                                 Ok(()) => d.files.refresh(id),
@@ -3622,10 +3623,10 @@ fn draw_properties(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover
     ui::label(canvas, &mut d.fonts, &format!("UID: {}    GID: {}", properties.uid, properties.gid), Rect::new(frame.x + 16, frame.y + 182 + offset, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
     ui::label(canvas, &mut d.fonts, &format!("{}: {:04o}", tr("Permissions"), properties.mode), Rect::new(frame.x + 16, frame.y + 204 + offset, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
     for (column, label) in ["Read", "Write", "Execute"].iter().enumerate() {
-        ui::label(canvas, &mut d.fonts, tr(label), Rect::new(frame.x + 132 + column as i32 * 92, frame.y + 272 + offset, 84, 20), ui::FILE_FONT_SIZE, true, Align::Center, ui::text());
+        ui::label(canvas, &mut d.fonts, tr(label), Rect::new(frame.x + 132 + column as i32 * 92, frame.y + 300 + offset, 84, 20), ui::FILE_FONT_SIZE, true, Align::Center, ui::text());
     }
     for (row, label) in ["Owner", "Group", "Others"].iter().enumerate() {
-        ui::label(canvas, &mut d.fonts, tr(label), Rect::new(frame.x + 16, frame.y + 292 + offset + row as i32 * 32, 108, 24), ui::FILE_FONT_SIZE, false, Align::Left, ui::text());
+        ui::label(canvas, &mut d.fonts, tr(label), Rect::new(frame.x + 16, frame.y + 320 + offset + row as i32 * 32, 108, 24), ui::FILE_FONT_SIZE, false, Align::Left, ui::text());
     }
     for (toggle in 0..2 {
         let rect = property_toggle_rect(frame, toggle);
