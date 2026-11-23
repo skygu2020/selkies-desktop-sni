@@ -3629,7 +3629,7 @@ fn draw_properties(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover
     for (row, label) in ["Owner", "Group", "Others"].iter().enumerate() {
         ui::label(canvas, &mut d.fonts, tr(label), Rect::new(frame.x + 16, frame.y + 320 + offset + row as i32 * 32, 108, 24), ui::FILE_FONT_SIZE, false, Align::Left, ui::text());
     }
-    for (toggle in 0..2 {
+    for toggle in 0..2 {
         let rect = property_toggle_rect(frame, toggle);
         let checked = if toggle == 0 { properties.read_only } else { properties.hidden };
         let label = if toggle == 0 { tr("Read-only") } else { tr("Hidden") };
