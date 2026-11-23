@@ -2885,10 +2885,38 @@ fn draw_toolbar(
     }
 
     let (find_text, find_active) = { let w = &d.files.windows[index]; (w.find.clone(), w.find_active) };
-    canvas.fill_rounded(layout.find, 6.0, ui::field_bg());
-    if find_active { canvas.stroke_rounded(layout.find, 1.0, ui::accent()); }
-    ui::label(canvas, &mut d.fonts, if find_text.is_empty() { "Find (*, ?)".to_string() } else { find_text }, Rect::new(layout.find.x + 7, layout.find.y, layout.find.w - 14, layout.find.h), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
-    if hover == Hit::FindField && !find_active { canvas.fill_rounded(layout.find, 6.0, ui::hover_bg()); }
+    canvas.fill_rounded(
+        layout.find,
+        6.0,
+        if hover == Hit::FindField && !find_active {
+            ui::hover_bg()
+        } else {
+            ui::field_bg()
+        },
+    );
+    if find_active {
+        canvas.stroke_rounded(layout.find, 6.0, 1.0, ui::accent());
+    }
+    let find_label = if find_text.is_empty() {
+        "Find (*, ?)"
+    } else {
+        find_text.as_str()
+    };
+    ui::label(
+        canvas,
+        &mut d.fonts,
+        find_label,
+        Rect::new(
+            layout.find.x + 7,
+            layout.find.y,
+            layout.find.w - 14,
+            layout.find.h,
+        ),
+        ui::FILE_FONT_SIZE,
+        false,
+        Align::Left,
+        if find_text.is_empty() { ui::text_dim() } else { ui::text() },
+    );
     if hover == Hit::ViewToggle {
         canvas.fill_rounded(layout.view_toggle, 6.0, ui::hover_bg());
     }
