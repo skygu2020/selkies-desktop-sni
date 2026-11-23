@@ -811,6 +811,11 @@ impl Manager {
         window.scan_generation = window.scan_generation.wrapping_add(1);
         window.loading = true;
         window.dirty = true;
+        if !window.find.is_empty() {
+            window.find_generation = window.find_generation.wrapping_add(1);
+            window.search_results.clear();
+            window.find_at = Some(Instant::now() + Duration::from_millis(120));
+        }
         let path = window.dir.clone();
         let generation = window.scan_generation;
         self.worker.request_directory_scan(id, generation, path, self.mime.clone());
