@@ -83,6 +83,8 @@ pub enum Hit {
     Crumb(usize),
     /// Empty space of the path bar, which opens the location field.
     PathField,
+    /// Wildcard search field.
+    FindField,
     /// The view toggle.
     ViewToggle,
     /// The sort button.
@@ -128,7 +130,8 @@ struct Layout {
     forward: Rect,
     up: Rect,
     path: Rect,
-    view_toggle: Rect,
+    find: Rect,
+    view_toggle,
     sort: Rect,
     sidebar: Rect,
     header: Rect,
@@ -168,7 +171,9 @@ fn layout(w: &FilesWindow) -> Layout {
     let up = Rect::new(forward.right() + 2, ty, TOOL, TOOL);
     let sort = Rect::new(frame.right() - PAD - TOOL, ty, TOOL, TOOL);
     let view_toggle = Rect::new(sort.x - 2 - TOOL, ty, TOOL, TOOL);
-    let path = Rect::new(up.right() + PAD, ty, view_toggle.x - PAD - up.right() - PAD, TOOL);
+    let find_w = 150.min((frame.w / 3).max(100));
+    let find = Rect::new(view_toggle.x - PAD - find_w, ty, find_w, TOOL);
+    let path = Rect::new(up.right() + PAD, ty, find.x - PAD - up.right() - PAD, TOOL);
     let footer_h = if w.picker.is_some() { FOOTER_H } else { 0 };
     let status = Rect::new(0, frame.h - footer_h - STATUS_H, frame.w, STATUS_H);
     let footer = (footer_h > 0).then(|| Rect::new(0, frame.h - footer_h, frame.w, footer_h));
@@ -190,6 +195,7 @@ fn layout(w: &FilesWindow) -> Layout {
         forward,
         up,
         path,
+        find,
         view_toggle,
         sort,
         sidebar,
@@ -521,6 +527,7 @@ pub fn hit(d: &mut Desktop, id: u32, x: f64, y: f64) -> Hit {
         }
         return Hit::None;
     }
+    if layout.find.contains(x, y) { return Hit::FindField; }
     if layout.path.contains(x, y) && d.files.windows[index].path_edit.is_some() { return Hit::PathField; }
     if layout.path.contains(x, y) && d.files.windows[index].path_edit.is_none() {
         let dir = d.files.windows[index].dir.clone();
@@ -1075,6 +1082,7 @@ pub fn pointer_button(
                     d.files.navigate(id, &path);
                 }
             }
+            Hit::FindField => { w.find_active = true; w.path_edit = None; }
             Hit::PathField => {
                 if let Some(text) = w.path_edit.as_ref() {
                     let chars: Vec<char> = text.chars().collect();
@@ -2235,6 +2243,16 @@ pub fn key(d: &mut Desktop, id: u32, key: Key, modifiers: Modifiers) {
             Key::Left => d.files.step_history(id, -1),
             Key::Right => d.files.step_history(id, 1),
             Key::Up => go_up(d, id),
+            _ => {}
+        }
+        return;
+    }
+    if w.find_active {
+        match key {
+            Key::Char(c) if !modifiers.ctrl => { w.find.push(c); w.refilter(); }
+            Key::Backspace => { w.find.pop(); w.refilter(); }
+            Key::Enter => w.find_active = false,
+            Key::Escape => { w.find.clear(); w.find_active = false; w.refilter(); }
             _ => {}
         }
         return;
