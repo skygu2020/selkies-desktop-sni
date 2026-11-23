@@ -118,7 +118,7 @@ impl Hit {
     pub fn clickable(self) -> bool {
         !matches!(
             self,
-            Hit::None | Hit::Item(_) | Hit::Content | Hit::PathField | Hit::Scrollbar(_)
+            Hit::None | Hit::Item(_) | Hit::Content | Hit::PathField | Hit::FindField | Hit::Scrollbar(_)
         )
     }
 }
@@ -131,7 +131,7 @@ struct Layout {
     up: Rect,
     path: Rect,
     find: Rect,
-    view_toggle,
+    view_toggle: Rect,
     sort: Rect,
     sidebar: Rect,
     header: Rect,
