@@ -369,6 +369,10 @@ pub struct FilesWindow {
     pub show_hidden: bool,
     /// The typed filter.
     pub filter: String,
+    /// Wildcard search in the current folder.
+    pub find: String,
+    /// Whether the wildcard search field has keyboard focus.
+    pub find_active: bool,
     /// Folders visited, for back and forward.
     pub history: Vec<PathBuf>,
     /// Position in the history.
@@ -432,6 +436,21 @@ pub struct FilesWindow {
     pub shown_title: String,
 }
 
+/// Case-insensitive glob matching supporting '*' and '?'.
+pub fn glob_match(pattern: &str, name: &str) -> bool {
+    let p: Vec<char> = pattern.to_lowercase().chars().collect();
+    let s: Vec<char> = name.to_lowercase().chars().collect();
+    let (mut i, mut j, mut star, mut retry) = (0usize, 0usize, None, 0usize);
+    while j < s.len() {
+        if i < p.len() && (p[i] == '?' || p[i] == s[j]) { i += 1; j += 1; }
+        else if i < p.len() && p[i] == '*' { star = Some(i); i += 1; retry = j; }
+        else if let Some(si) = star { i = si + 1; retry += 1; j = retry; }
+        else { return false; }
+    }
+    while i < p.len() && p[i] == '*' { i += 1; }
+    i == p.len()
+}
+
 impl FilesWindow {
     /// The items of the folder as read, before filtering.
     pub fn all_items(&self) -> &[Item] {
@@ -491,7 +510,7 @@ impl FilesWindow {
             .all
             .iter()
             .filter(|item| self.show_hidden || !item.hidden)
-            .filter(|item| needle.is_empty() || item.name.to_lowercase().contains(&needle))
+            .filter(|item| self.show_hidden || !item.hidden)
             .filter(|item| {
                 picker_mimes
                     .as_ref()
@@ -508,7 +527,17 @@ impl FilesWindow {
             .filter(|(_, item)| selected.contains(&item.path))
             .map(|(i, _)| i)
             .collect();
-        self.cursor = cursor_path.and_then(|p| self.items.iter().position(|i| i.path == p));
+        self.cursor = if !self.find.is_empty() {
+            self.items.iter().position(|item| glob_match(&self.find, &item.name))
+        } else if !needle.is_empty() {
+            self.items.iter().position(|item| item.name.to_lowercase().contains(&needle))
+        } else {
+            cursor_path.and_then(|p| self.items.iter().position(|i| i.path == p))
+        };
+        if !self.find.is_empty() || !needle.is_empty() {
+            self.selection.clear();
+            if let Some(cursor) = self.cursor { self.selection.insert(cursor); }
+        }
         let revealed: Vec<PathBuf> = self.reveal.iter().filter(|path| self.items.iter().any(|item| item.path.as_path() == path.as_path())).cloned().collect();
         for path in &revealed {
             if let Some(index) = self.items.iter().position(|item| item.path.as_path() == path.as_path()) {
@@ -646,6 +675,8 @@ impl Manager {
             ascending: true,
             show_hidden: defaults.show_hidden,
             filter: String::new(),
+            find: String::new(),
+            find_active: false,
             history: Vec::new(),
             history_pos: 0,
             geometry: Geometry::default(),
