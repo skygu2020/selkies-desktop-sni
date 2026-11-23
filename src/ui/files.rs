@@ -3582,7 +3582,7 @@ fn draw_properties(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover
     };
     ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Path"), properties.path.display()), Rect::new(frame.x + 16, frame.y + 70, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
     let created = metadata.as_ref().and_then(|m| m.created().ok()).and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|t| files::human_time(t.as_secs() as i64)).unwrap_or_else(|| "—".to_string());
-    let modified = metadata.as_ref().map(|m| files::human_time(m.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs() as i64)).unwrap_or_else(|| "—".to_string());
+    let modified = metadata.as_ref().and_then(|m| m.modified().ok()).and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|t| files::human_time(t.as_secs() as i64)).unwrap_or_else(|| "—".to_string());
     ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Created"), created), Rect::new(frame.x + 16, frame.y + 92, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
     ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Modified"), modified), Rect::new(frame.x + 16, frame.y + 114, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
     ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Type"), kind), Rect::new(frame.x + 16, frame.y + 136, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
