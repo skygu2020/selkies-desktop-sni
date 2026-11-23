@@ -429,7 +429,7 @@ fn submenu_row_at(rect: Rect, x: f64, y: f64, count: usize) -> Option<usize> {
 /// The properties dialog and its two buttons.
 fn properties_rects(w: &FilesWindow) -> (Rect, Rect, Rect) {
     let width = 460.min(w.geometry.width - 20);
-    let height = 390.min(w.geometry.height - 20);
+    let height = 450.min(w.geometry.height - 20);
     let frame = Rect::new((w.geometry.width - width) / 2, (w.geometry.height - height) / 2, width, height);
     let apply = Rect::new(frame.right() - 16 - 90, frame.bottom() - 16 - 30, 90, 30);
     let cancel = Rect::new(apply.x - 8 - 90, apply.y, 90, 30);
@@ -439,11 +439,11 @@ fn properties_rects(w: &FilesWindow) -> (Rect, Rect, Rect) {
 fn property_bit_rect(frame: Rect, bit: usize) -> Rect {
     let row = bit / 3;
     let column = bit % 3;
-    Rect::new(frame.x + 162 + column as i32 * 92, frame.y + 178 + row as i32 * 32, 24, 24)
+    Rect::new(frame.x + 162 + column as i32 * 92, frame.y + 270 + row as i32 * 32, 24, 24)
 }
 
 fn property_recursive_rect(frame: Rect) -> Rect {
-    Rect::new(frame.x + 16, frame.y + 286, frame.w - 32, 24)
+    Rect::new(frame.x + 16, frame.y + 378, frame.w - 32, 24)
 }
 
 /// Apply a permission mode to a path and optionally all descendants.
@@ -2926,7 +2926,7 @@ fn draw_toolbar(
         canvas.stroke_rounded(layout.find, 6.0, 1.0, ui::accent());
     }
     let find_label = if find_text.is_empty() {
-        "Find (*, ?)"
+        "Search current folder (recursive)"
     } else {
         find_text.as_str()
     };
@@ -3580,15 +3580,20 @@ fn draw_properties(d: &mut Desktop, index: usize, canvas: &mut Canvas<'_>, hover
     } else {
         properties.size.map(files::human_size).unwrap_or_else(|| "—".to_string())
     };
-    ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Type"), kind), Rect::new(frame.x + 16, frame.y + 70, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
-    ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Size"), size), Rect::new(frame.x + 16, frame.y + 92, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
-    ui::label(canvas, &mut d.fonts, &format!("UID: {}    GID: {}", properties.uid, properties.gid), Rect::new(frame.x + 16, frame.y + 116, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
-    ui::label(canvas, &mut d.fonts, &format!("{}: {:04o}", tr("Permissions"), properties.mode), Rect::new(frame.x + 16, frame.y + 138, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
+    ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Path"), properties.path.display()), Rect::new(frame.x + 16, frame.y + 70, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
+    let created = metadata.as_ref().and_then(|m| m.created().ok()).and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|t| files::human_time(t.as_secs() as i64)).unwrap_or_else(|| "—".to_string());
+    let modified = metadata.as_ref().map(|m| files::human_time(m.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs() as i64)).unwrap_or_else(|| "—".to_string());
+    ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Created"), created), Rect::new(frame.x + 16, frame.y + 92, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
+    ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Modified"), modified), Rect::new(frame.x + 16, frame.y + 114, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
+    ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Type"), kind), Rect::new(frame.x + 16, frame.y + 136, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
+    ui::label(canvas, &mut d.fonts, &format!("{}: {}", tr("Size"), size), Rect::new(frame.x + 16, frame.y + 158, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
+    ui::label(canvas, &mut d.fonts, &format!("UID: {}    GID: {}", properties.uid, properties.gid), Rect::new(frame.x + 16, frame.y + 182, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
+    ui::label(canvas, &mut d.fonts, &format!("{}: {:04o}", tr("Permissions"), properties.mode), Rect::new(frame.x + 16, frame.y + 204, frame.w - 32, 20), ui::FILE_FONT_SIZE, false, Align::Left, ui::text_dim());
     for (column, label) in ["Read", "Write", "Execute"].iter().enumerate() {
-        ui::label(canvas, &mut d.fonts, tr(label), Rect::new(frame.x + 132 + column as i32 * 92, frame.y + 158, 84, 20), ui::FILE_FONT_SIZE, true, Align::Center, ui::text());
+        ui::label(canvas, &mut d.fonts, tr(label), Rect::new(frame.x + 132 + column as i32 * 92, frame.y + 250, 84, 20), ui::FILE_FONT_SIZE, true, Align::Center, ui::text());
     }
     for (row, label) in ["Owner", "Group", "Others"].iter().enumerate() {
-        ui::label(canvas, &mut d.fonts, tr(label), Rect::new(frame.x + 16, frame.y + 178 + row as i32 * 32, 108, 24), ui::FILE_FONT_SIZE, false, Align::Left, ui::text());
+        ui::label(canvas, &mut d.fonts, tr(label), Rect::new(frame.x + 16, frame.y + 270 + row as i32 * 32, 108, 24), ui::FILE_FONT_SIZE, false, Align::Left, ui::text());
     }
     for bit in 0..9 {
         let rect = property_bit_rect(frame, bit);
