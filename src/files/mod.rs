@@ -375,7 +375,6 @@ impl FilesWindow {
             .all
             .iter()
             .filter(|item| self.show_hidden || !item.hidden)
-            .filter(|item| needle.is_empty() || item.name.to_lowercase().contains(&needle))
             .filter(|item| {
                 picker_mimes
                     .as_ref()
@@ -392,7 +391,17 @@ impl FilesWindow {
             .filter(|(_, item)| selected.contains(&item.path))
             .map(|(i, _)| i)
             .collect();
-        self.cursor = cursor_path.and_then(|p| self.items.iter().position(|i| i.path == p));
+        self.cursor = if needle.is_empty() {
+            cursor_path.and_then(|p| self.items.iter().position(|i| i.path == p))
+        } else {
+            self.items.iter().position(|item| item.name.to_lowercase().contains(&needle))
+        };
+        if !needle.is_empty() {
+            self.selection.clear();
+            if let Some(cursor) = self.cursor {
+                self.selection.insert(cursor);
+            }
+        }
         if let Some(rename) = &self.rename
             && rename.index >= self.items.len()
         {
