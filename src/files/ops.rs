@@ -39,6 +39,8 @@ pub enum Job {
     DirectorySize { path: PathBuf },
     /// Read a directory listing without blocking the UI.
     ReadDirectory { window_id: u32, generation: u64, path: PathBuf, mime: MimeDb },
+    /// Read immediate children for one quick-access tree node.
+    ReadSidebarDirectory { window_id: u32, path: PathBuf, mime: MimeDb },
     /// Recursively find matching names below a directory.
     FindFiles { window_id: u32, generation: u64, root: PathBuf, pattern: String, show_hidden: bool, mime: MimeDb },
     /// Extract an archive into a directory.
@@ -82,6 +84,8 @@ pub enum Message {
     FindDone { window_id: u32, generation: u64, root: PathBuf, pattern: String, results: Vec<Item> },
     /// A completed directory listing, tagged to reject stale navigation results.
     DirectoryRead { window_id: u32, generation: u64, path: PathBuf, result: Result<Vec<Item>, String> },
+    /// Immediate child entries for a quick-access tree node.
+    SidebarRead { window_id: u32, path: PathBuf, result: Result<Vec<Item>, String> },
 }
 
 /// The channel to the workers and the pipe they wake the main loop with.
@@ -192,6 +196,11 @@ impl Worker {
         let _ = self.scans.send(Job::ReadDirectory { window_id, generation, path, mime });
     }
 
+    /// Queues a quick-access directory scan on the directory worker.
+    pub fn request_sidebar_scan(&self, window_id: u32, path: PathBuf, mime: MimeDb) {
+        let _ = self.scans.send(Job::ReadSidebarDirectory { window_id, path, mime });
+    }
+
     /// Queues a recursive name search on its own worker thread.
     pub fn request_find(&self, window_id: u32, generation: u64, root: PathBuf, pattern: String, show_hidden: bool, mime: MimeDb) {
         let _ = self.finds.send(Job::FindFiles { window_id, generation, root, pattern, show_hidden, mime });
@@ -255,6 +264,10 @@ fn run(job: Job, tx: &Sender<Message>, wake: Option<&OwnedFd>) {
         Job::ReadDirectory { window_id, generation, path, mime } => {
             let result = read_dir(&path, &mime).map_err(|error| error.to_string());
             send(Message::DirectoryRead { window_id, generation, path, result });
+        }
+        Job::ReadSidebarDirectory { window_id, path, mime } => {
+            let result = read_dir(&path, &mime).map_err(|error| error.to_string());
+            send(Message::SidebarRead { window_id, path, result });
         }
         Job::FindFiles { window_id, generation, root, pattern, show_hidden, mime } => {
             let results = find_files(&root, &pattern, show_hidden, &mime);
