@@ -1765,6 +1765,11 @@ fn perform(d: &mut Desktop, id: u32, action: MenuAction) {
         MenuAction::NewFile => new_file(d, id),
         MenuAction::ToggleHidden => {
             w.show_hidden = !w.show_hidden;
+            if !w.find.is_empty() {
+                w.find_generation = w.find_generation.wrapping_add(1);
+                w.search_results.clear();
+                w.find_at = Some(std::time::Instant::now() + std::time::Duration::from_millis(120));
+            }
             w.refilter();
         }
         MenuAction::View(view) => {
