@@ -289,6 +289,8 @@ pub struct FilesWindow {
     pub show_hidden: bool,
     /// The typed filter.
     pub filter: String,
+    /// Wildcard search in the current folder.
+    pub find: String,
     /// Folders visited, for back and forward.
     pub history: Vec<PathBuf>,
     /// Position in the history.
@@ -391,10 +393,11 @@ impl FilesWindow {
             .filter(|(_, item)| selected.contains(&item.path))
             .map(|(i, _)| i)
             .collect();
-        self.cursor = if needle.is_empty() {
-            cursor_path.and_then(|p| self.items.iter().position(|i| i.path == p))
+        let locate = if !self.find.is_empty() { Some(self.find.as_str()) } else if !needle.is_empty() { Some(needle.as_str()) } else { None };
+        self.cursor = if let Some(pattern) = locate {
+            self.items.iter().position(|item| if !self.find.is_empty() { glob_match(pattern, &item.name) } else { item.name.to_lowercase().contains(pattern) })
         } else {
-            self.items.iter().position(|item| item.name.to_lowercase().contains(&needle))
+            cursor_path.and_then(|p| self.items.iter().position(|i| i.path == p))
         };
         if !needle.is_empty() {
             self.selection.clear();
@@ -509,6 +512,7 @@ impl Manager {
             ascending: true,
             show_hidden: defaults.show_hidden,
             filter: String::new(),
+            find: String::new(),
             history: Vec::new(),
             history_pos: 0,
             geometry: Geometry::default(),
