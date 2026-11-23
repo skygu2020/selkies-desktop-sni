@@ -82,6 +82,8 @@ pub enum Hit {
     Crumb(usize),
     /// Empty space of the path bar, which opens the location field.
     PathField,
+    /// The wildcard search field.
+    FindField,
     /// The view toggle.
     ViewToggle,
     /// The sort button.
@@ -121,6 +123,7 @@ struct Layout {
     forward: Rect,
     up: Rect,
     path: Rect,
+    find: Rect,
     view_toggle: Rect,
     sort: Rect,
     sidebar: Rect,
@@ -161,7 +164,9 @@ fn layout(w: &FilesWindow) -> Layout {
     let up = Rect::new(forward.right() + 2, ty, TOOL, TOOL);
     let sort = Rect::new(frame.right() - PAD - TOOL, ty, TOOL, TOOL);
     let view_toggle = Rect::new(sort.x - 2 - TOOL, ty, TOOL, TOOL);
-    let path = Rect::new(up.right() + PAD, ty, view_toggle.x - PAD - up.right() - PAD, TOOL);
+    let find_w = 150.min((frame.w / 3).max(100));
+    let find = Rect::new(view_toggle.x - PAD - find_w, ty, find_w, TOOL);
+    let path = Rect::new(up.right() + PAD, ty, find.x - PAD - up.right() - PAD, TOOL);
     let footer_h = if w.picker.is_some() { FOOTER_H } else { 0 };
     let status = Rect::new(0, frame.h - footer_h - STATUS_H, frame.w, STATUS_H);
     let footer = (footer_h > 0).then(|| Rect::new(0, frame.h - footer_h, frame.w, footer_h));
@@ -183,6 +188,7 @@ fn layout(w: &FilesWindow) -> Layout {
         forward,
         up,
         path,
+        find,
         view_toggle,
         sort,
         sidebar,
@@ -378,6 +384,7 @@ pub fn hit(d: &mut Desktop, id: u32, x: f64, y: f64) -> Hit {
         return Hit::None;
     };
     let layout = layout(&d.files.windows[index]);
+    if layout.find.contains(x, y) { return Hit::FindField; }
     if layout.path.contains(x, y) && d.files.windows[index].path_edit.is_none() {
         let dir = d.files.windows[index].dir.clone();
         let scale = d.files.windows[index].geometry.scale;
@@ -1911,6 +1918,13 @@ fn draw_toolbar(
         canvas.reset_clip();
     }
 
+    draw_field(canvas, d, layout.find, &d.files.windows[index].find, scale);
+    if !d.files.windows[index].find_active {
+        ui::label(canvas, &mut d.fonts, "Find (glob)", Rect::new(layout.find.x + 6, layout.find.y, layout.find.w - 12, layout.find.h), ui::FONT_SMALL, false, Align::Left, ui::text_dim());
+    }
+    if hover == Hit::FindField || d.files.windows[index].find_active {
+        canvas.stroke_rounded(layout.find, 5.0, 1.0, ui::accent());
+    }
     if hover == Hit::ViewToggle {
         canvas.fill_rounded(layout.view_toggle, 6.0, ui::hover_bg());
     }
