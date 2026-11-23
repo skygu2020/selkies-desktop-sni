@@ -291,6 +291,8 @@ pub struct FilesWindow {
     pub filter: String,
     /// Wildcard search in the current folder.
     pub find: String,
+    /// Whether the wildcard search field has keyboard focus.
+    pub find_active: bool,
     /// Folders visited, for back and forward.
     pub history: Vec<PathBuf>,
     /// Position in the history.
@@ -513,6 +515,7 @@ impl Manager {
             show_hidden: defaults.show_hidden,
             filter: String::new(),
             find: String::new(),
+            find_active: false,
             history: Vec::new(),
             history_pos: 0,
             geometry: Geometry::default(),
