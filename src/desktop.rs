@@ -1544,7 +1544,8 @@ impl Desktop {
             SurfaceId::Panel => {
                 self.pointer = (x, y);
                 if self.task_drag_motion(x, y) {
-                    self.set_hover(panel::hit(self, x, y));
+                    let hover = panel::hit(self, x, y);
+                    self.set_hover(hover);
                     return;
                 }
                 if self.config.panel_autohide {
