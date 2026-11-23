@@ -39,6 +39,8 @@ pub enum Job {
     DirectorySize { path: PathBuf },
     /// Read a directory listing without blocking the UI.
     ReadDirectory { window_id: u32, generation: u64, path: PathBuf, mime: MimeDb },
+    /// Recursively find matching names below a directory.
+    FindFiles { window_id: u32, generation: u64, root: PathBuf, pattern: String, show_hidden: bool, mime: MimeDb },
     /// Extract an archive into a directory.
     Extract { id: u64, archive: PathBuf, dest: PathBuf },
 }
@@ -76,6 +78,8 @@ pub enum Message {
     Thumb { key: ThumbKey, image: Option<Pixmap> },
     /// The total size of a directory, or None if it could not be read.
     DirectorySize { path: PathBuf, size: Option<u64> },
+    /// A completed recursive search, tagged to reject stale queries and navigation.
+    FindDone { window_id: u32, generation: u64, root: PathBuf, pattern: String, results: Vec<Item> },
     /// A completed directory listing, tagged to reject stale navigation results.
     DirectoryRead { window_id: u32, generation: u64, path: PathBuf, result: Result<Vec<Item>, String> },
 }
@@ -86,6 +90,7 @@ pub struct Worker {
     thumbs: Sender<Job>,
     sizes: Sender<Job>,
     scans: Sender<Job>,
+    finds: Sender<Job>,
     results: Receiver<Message>,
     wake_read: OwnedFd,
     pending: HashSet<ThumbKey>,
@@ -114,6 +119,7 @@ impl Worker {
         let (thumbs, thumbs_rx) = channel::<Job>();
         let (sizes, sizes_rx) = channel::<Job>();
         let (scans, scans_rx) = channel::<Job>();
+        let (finds, finds_rx) = channel::<Job>();
         for rx in [ops_rx, thumbs_rx, sizes_rx] {
             let tx = result_tx.clone();
             let wake = wake_write.clone();
@@ -130,11 +136,19 @@ impl Worker {
                 run(job, &tx, wake.as_deref());
             }
         });
+        let tx = result_tx.clone();
+        let wake = wake_write.clone();
+        std::thread::spawn(move || {
+            while let Ok(job) = finds_rx.recv() {
+                run(job, &tx, wake.as_deref());
+            }
+        });
         Worker {
             ops,
             thumbs,
             sizes,
             scans,
+            finds,
             results,
             wake_read,
             pending: HashSet::new(),
@@ -176,6 +190,11 @@ impl Worker {
     /// navigation can discard scans that finish after a newer request.
     pub fn request_directory_scan(&self, window_id: u32, generation: u64, path: PathBuf, mime: MimeDb) {
         let _ = self.scans.send(Job::ReadDirectory { window_id, generation, path, mime });
+    }
+
+    /// Queues a recursive name search on its own worker thread.
+    pub fn request_find(&self, window_id: u32, generation: u64, root: PathBuf, pattern: String, show_hidden: bool, mime: MimeDb) {
+        let _ = self.finds.send(Job::FindFiles { window_id, generation, root, pattern, show_hidden, mime });
     }
 
     /// Queues a directory-size calculation unless the same path is pending.
@@ -237,6 +256,10 @@ fn run(job: Job, tx: &Sender<Message>, wake: Option<&OwnedFd>) {
             let result = read_dir(&path, &mime).map_err(|error| error.to_string());
             send(Message::DirectoryRead { window_id, generation, path, result });
         }
+        Job::FindFiles { window_id, generation, root, pattern, show_hidden, mime } => {
+            let results = find_files(&root, &pattern, show_hidden, &mime);
+            send(Message::FindDone { window_id, generation, root, pattern, results });
+        }
         Job::Extract { id, archive, dest } => {
             let errors = extract_archive(&archive, &dest);
             send(Message::Done { id, errors });
@@ -271,6 +294,29 @@ fn run(job: Job, tx: &Sender<Message>, wake: Option<&OwnedFd>) {
             send(Message::Done { id, errors });
         }
     }
+}
+
+
+/// Searches directory trees without following symbolic links. Matching is
+/// case-insensitive and applies to each entry's basename, not its parent path.
+fn find_files(root: &Path, pattern: &str, show_hidden: bool, mime: &MimeDb) -> Vec<Item> {
+    let mut pending = vec![root.to_path_buf()];
+    let mut results = Vec::new();
+    while let Some(directory) = pending.pop() {
+        let Ok(entries) = read_dir(&directory, mime) else { continue };
+        for item in entries {
+            if !show_hidden && item.hidden {
+                continue;
+            }
+            if item.is_dir && !item.is_symlink {
+                pending.push(item.path.clone());
+            }
+            if super::glob_match(pattern, &item.name) {
+                results.push(item);
+            }
+        }
+    }
+    results
 }
 
 /// Calculates the sum of regular-file sizes below a directory.
