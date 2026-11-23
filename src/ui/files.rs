@@ -1022,6 +1022,7 @@ pub fn pointer_button(
                         && properties.can_modify
                     {
                         properties.mode ^= 1 << (8 - bit);
+                        properties.read_only = properties.mode & 0o222 == 0;
                     }
                 }
                 Hit::Property(11) => {
