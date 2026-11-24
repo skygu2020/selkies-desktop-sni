@@ -225,7 +225,8 @@ fn is_grid(d: &Desktop) -> bool {
 /// movement across the popup margin does not generate a surface leave.
 pub fn input_bridge(d: &mut Desktop) -> Rect {
     let start = crate::ui::panel::layout(d).start;
-    start.union(layout(d).frame)
+    let frame = layout(d).frame;
+    start.union(&frame)
 }
 
 fn layout(d: &Desktop) -> Layout {
