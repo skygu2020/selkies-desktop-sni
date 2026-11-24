@@ -1829,10 +1829,8 @@ impl Desktop {
         let mut damage: Vec<Rect> = previous.iter().map(|r| r.inflate(CLEAR_MARGIN)).collect();
         damage.extend(visible.iter().map(|r| r.inflate(CLEAR_MARGIN)));
         let grab = self.popup != Popup::None;
-        // Popups must not make the entire panel surface an input target.
-        // Regions outside the visible panel/popup should receive clicks in
-        // other applications directly, while the compositor sends leave
-        // events here to dismiss the popup.
+        // Keep input limited to the panel and popup themselves. Pointer
+        // leave does not dismiss a popup; focus loss or an outside click does.
         let input = visible.clone();
         self.panel_visible = visible.clone();
         self.panel_pix = Some(pix);
