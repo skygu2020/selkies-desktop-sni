@@ -1835,7 +1835,13 @@ impl Desktop {
         // Regions outside the visible panel/popup should receive clicks in
         // other applications directly, while the compositor sends leave
         // events here to dismiss the popup.
-        let input = visible.clone();
+        let mut input = visible.clone();
+        if self.popup == Popup::Menu {
+            // The popup is separated from the start button by a small margin.
+            // Keep that corridor input-enabled so entering the menu does not
+            // trigger PointerLeave, without capturing the rest of the screen.
+            input.push(menu::input_bridge(self));
+        }
         self.panel_visible = visible.clone();
         self.panel_pix = Some(pix);
         Some(Frame {
