@@ -221,14 +221,6 @@ fn is_grid(d: &Desktop) -> bool {
 /// fixed height so it stays put while the lists change; the panel surface
 /// may be taller than the screen, so the screen height, which the background
 /// surface knows, bounds it.
-/// Input-only corridor connecting the start button to the menu so pointer
-/// movement across the popup margin does not generate a surface leave.
-pub fn input_bridge(d: &mut Desktop) -> Rect {
-    let start = crate::ui::panel::layout(d).start;
-    let frame = layout(d).frame;
-    start.union(&frame)
-}
-
 fn layout(d: &Desktop) -> Layout {
     let bar = d.bar_rect();
     let screen_height = d
