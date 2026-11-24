@@ -671,38 +671,25 @@ impl X11Backend {
         );
     }
 
-    /// Holds or releases the pointer and keyboard while a popup is open, so a
-    /// click anywhere reaches the panel and can dismiss it and typed keys
-    /// reach the search box.
+    /// Holds the keyboard while a popup is open so its search field receives
+    /// keys, but leaves the pointer ungrabbed: clicks outside the popup input
+    /// region must reach the application underneath instead of being consumed
+    /// merely to dismiss the menu.
     fn sync_grabs(&mut self) {
         if self.popup_open && !self.grabbed {
-            let pointer = self
+            self.grabbed = self
                 .conn
-                .grab_pointer(
+                .grab_keyboard(
                     false,
                     self.panel.window,
-                    xproto::EventMask::BUTTON_PRESS
-                        | xproto::EventMask::BUTTON_RELEASE
-                        | xproto::EventMask::POINTER_MOTION,
-                    xproto::GrabMode::ASYNC,
-                    xproto::GrabMode::ASYNC,
-                    x11rb::NONE,
-                    x11rb::NONE,
                     x11rb::CURRENT_TIME,
+                    xproto::GrabMode::ASYNC,
+                    xproto::GrabMode::ASYNC,
                 )
                 .ok()
                 .and_then(|c| c.reply().ok())
                 .is_some_and(|r| r.status == xproto::GrabStatus::SUCCESS);
-            let _ = self.conn.grab_keyboard(
-                false,
-                self.panel.window,
-                x11rb::CURRENT_TIME,
-                xproto::GrabMode::ASYNC,
-                xproto::GrabMode::ASYNC,
-            );
-            self.grabbed = pointer;
         } else if !self.popup_open && self.grabbed {
-            let _ = self.conn.ungrab_pointer(x11rb::CURRENT_TIME);
             let _ = self.conn.ungrab_keyboard(x11rb::CURRENT_TIME);
             self.grabbed = false;
         }
@@ -1685,11 +1672,10 @@ impl Backend for X11Backend {
             return;
         };
         if !is_window {
-            let input: Vec<Rect> = if id == SurfaceId::Panel && frame.grab {
-                vec![Rect::new(0, 0, w / scale, h / scale)]
-            } else {
-                frame.input.clone()
-            };
+            // Keep the popup's actual input rectangles. A fullscreen
+            // panel input shape swallowed clicks to other applications,
+            // requiring a second click after the popup was dismissed.
+            let input: Vec<Rect> = frame.input.clone();
             self.apply_shape(surface, &input, scale, id == SurfaceId::Panel);
         }
         if id == SurfaceId::Panel {
