@@ -1325,7 +1325,11 @@ impl Backend for WaylandBackend {
                         });
                     }
                     let interactivity = if *open {
-                        zwlr_layer_surface_v1::KeyboardInteractivity::Exclusive
+                        // Request keyboard focus only while the pointer is
+                        // interacting with the panel. Exclusive mode keeps
+                        // focus here and prevents other applications from
+                        // receiving keyboard input or becoming active.
+                        zwlr_layer_surface_v1::KeyboardInteractivity::OnDemand
                     } else {
                         zwlr_layer_surface_v1::KeyboardInteractivity::None
                     };
