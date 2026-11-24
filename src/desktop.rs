@@ -1599,6 +1599,11 @@ impl Desktop {
         time: u32,
         modifiers: Modifiers,
     ) {
+        // A press on any surface other than the panel is an outside click.
+        // Dismiss the popup, then continue routing the same press normally.
+        if pressed && surface != SurfaceId::Panel && self.popup != Popup::None {
+            self.close_popup();
+        }
         if !pressed && surface == SurfaceId::Panel {
             self.task_drag_motion(x, y);
         }
