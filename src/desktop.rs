@@ -1744,15 +1744,13 @@ impl Desktop {
         match surface {
             SurfaceId::Panel => {
                 self.pointer = (-1.0, -1.0);
-                if self.popup != Popup::None {
-                    // Popups belong to the panel surface. Once the pointer
-                    // leaves it, dismiss every popup instead of leaving a
-                    // hover-only menu stranded open.
-                    self.close_popup();
-                } else {
+                // Pointer leave is only a hover transition. A popup remains
+                // open while the pointer travels to another surface; focus
+                // loss or an outside click is responsible for dismissing it.
+                if self.popup == Popup::None {
                     self.schedule_hide();
-                    self.set_hover(Hover::None);
                 }
+                self.set_hover(Hover::None);
             }
             SurfaceId::Background(_) => {
                 if matches!(self.hover, Hover::DesktopIcon(_)) {
@@ -1835,13 +1833,7 @@ impl Desktop {
         // Regions outside the visible panel/popup should receive clicks in
         // other applications directly, while the compositor sends leave
         // events here to dismiss the popup.
-        let mut input = visible.clone();
-        if self.popup == Popup::Menu {
-            // The popup is separated from the start button by a small margin.
-            // Keep that corridor input-enabled so entering the menu does not
-            // trigger PointerLeave, without capturing the rest of the screen.
-            input.push(menu::input_bridge(self));
-        }
+        let input = visible.clone();
         self.panel_visible = visible.clone();
         self.panel_pix = Some(pix);
         Some(Frame {
