@@ -2118,6 +2118,12 @@ pub fn pointer_leave(d: &mut Desktop, id: u32) {
         if w.selection_drag.take().is_some() {
             w.dirty = true;
         }
+        // The context menu is transient and only valid while this file
+        // manager surface is hovered. Do not leave it visible after the
+        // pointer moves to another window, the panel, or the desktop.
+        if w.menu.take().is_some() {
+            w.dirty = true;
+        }
     }
     if matches!(d.hover, Hover::Files(h, _) if h == id) {
         d.set_hover(Hover::None);
