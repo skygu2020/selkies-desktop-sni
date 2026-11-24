@@ -1009,7 +1009,7 @@ impl Desktop {
                 _ => self.key(key),
             },
             Event::KeyboardLeave { surface } => {
-                if surface == SurfaceId::Panel && self.popup == Popup::Menu {
+                if surface == SurfaceId::Panel && self.popup != Popup::None {
                     self.close_popup();
                 }
             }
@@ -1744,13 +1744,13 @@ impl Desktop {
         match surface {
             SurfaceId::Panel => {
                 self.pointer = (-1.0, -1.0);
-                self.schedule_hide();
-                if self.popup == Popup::None
-                    || !matches!(
-                        self.hover,
-                        Hover::MenuApp(_) | Hover::MenuTile(_) | Hover::MenuCategory(_) | Hover::Control(_)
-                    )
-                {
+                if self.popup != Popup::None {
+                    // Popups belong to the panel surface. Once the pointer
+                    // leaves it, dismiss every popup instead of leaving a
+                    // hover-only menu stranded open.
+                    self.close_popup();
+                } else {
+                    self.schedule_hide();
                     self.set_hover(Hover::None);
                 }
             }
