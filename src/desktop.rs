@@ -1074,6 +1074,12 @@ impl Desktop {
                 }
             }
             Event::ToplevelState { id, state } => {
+                // A layer-shell popup does not receive pointer clicks delivered
+                // to another application. When that click activates a toplevel,
+                // dismiss the popup here without consuming the application's click.
+                if state.active && self.popup != Popup::None {
+                    self.close_popup();
+                }
                 if let Some(i) = self.toplevel_index(id)
                     && self.toplevels[i].state != state
                 {
