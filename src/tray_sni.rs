@@ -42,7 +42,11 @@ impl TraySni {
             Ok(host) => host,
             Err(error) => {
                 if error.to_string().contains("another StatusNotifierWatcher is already running") {
-                    eprintln!("selkies-desktop: another StatusNotifierWatcher is active; keeping it in place and continuing without the SNI host");
+                    if std::env::var_os("SELKIES_DESKTOP_DEBUG").is_some() {
+                        eprintln!(
+                            "selkies-desktop: another StatusNotifierWatcher is active; keeping it in place and continuing with the XEmbed tray fallback"
+                        );
+                    }
                 } else {
                     eprintln!("selkies-desktop: cannot start StatusNotifier host: {error}");
                 }
