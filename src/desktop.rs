@@ -1084,12 +1084,11 @@ impl Desktop {
                 // reports a different active toplevel. The first active-state
                 // event merely establishes the baseline; it must not dismiss a
                 // popup opened before the initial foreign-toplevel state arrived.
-                if state.active {
-                    let changed = self.active_toplevel.replace(id)
-                        .is_some_and(|previous| previous != id);
-                    if changed && self.popup != Popup::None {
-                        self.close_popup();
-                    }
+                if state.active
+                    && active_toplevel_changed(&mut self.active_toplevel, id)
+                    && self.popup != Popup::None
+                {
+                    self.close_popup();
                 }
                 if let Some(i) = self.toplevel_index(id)
                     && self.toplevels[i].state != state
@@ -2063,5 +2062,37 @@ impl Desktop {
             visible: vec![whole],
             grab: false,
         })
+    }
+}
+
+
+/// Records the active toplevel and reports whether focus moved from a known one.
+fn active_toplevel_changed(previous: &mut Option<u64>, current: u64) -> bool {
+    previous.replace(current).is_some_and(|previous| previous != current)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::active_toplevel_changed;
+
+    #[test]
+    fn first_active_toplevel_establishes_baseline() {
+        let mut active = None;
+        assert!(!active_toplevel_changed(&mut active, 7));
+        assert_eq!(active, Some(7));
+    }
+
+    #[test]
+    fn same_active_toplevel_does_not_dismiss_popup() {
+        let mut active = Some(7);
+        assert!(!active_toplevel_changed(&mut active, 7));
+        assert_eq!(active, Some(7));
+    }
+
+    #[test]
+    fn switching_active_toplevel_is_detected() {
+        let mut active = Some(7);
+        assert!(active_toplevel_changed(&mut active, 9));
+        assert_eq!(active, Some(9));
     }
 }
