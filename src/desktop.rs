@@ -1008,10 +1008,12 @@ impl Desktop {
                 SurfaceId::Window(id) => ui::files::key(self, id, key, modifiers),
                 _ => self.key(key),
             },
-            Event::KeyboardLeave { surface } => {
-                if surface == SurfaceId::Panel && self.popup != Popup::None {
-                    self.close_popup();
-                }
+            Event::KeyboardLeave { surface: _ } => {
+                // Do not dismiss popups solely because the panel layer loses
+                // keyboard focus. With OnDemand layer-shell focus, labwc may
+                // send this while a popup is being opened from an already
+                // focused application. Toplevel activation changes handle
+                // switching to another application window.
             }
             Event::WindowCloseRequested { window } => ui::files::close(self, window),
             Event::DragEnter { surface, x, y } | Event::DragMotion { surface, x, y } => {
