@@ -147,7 +147,7 @@ fn run() -> i32 {
     }
     let mut watcher = watch::Watcher::new();
     let server = ipc::Server::bind();
-    let file_manager = file_manager::start();
+    let mut file_manager = file_manager::start();
     let mut audio = if desktop.config.show_volume {
         Some(audio::Audio::new())
     } else {
@@ -462,7 +462,7 @@ fn run() -> i32 {
         }
 
         if let Some(index) = file_manager_index
-            && fds[index].revents & (libc::POLLIN | libc::POLLHUP) != 0
+            && fds[index].revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0
             && let Some(service) = file_manager.as_ref()
         {
             for paths in service.drain() {
@@ -481,6 +481,13 @@ fn run() -> i32 {
                 for (dir, selected) in groups {
                     desktop.open_files_selected(dir, selected);
                 }
+            }
+
+            // The wake socket is a one-way channel from the D-Bus worker.
+            // Once its peer exits, poll() reports POLLHUP forever. Remove the
+            // dead service from the poll set after draining any queued paths.
+            if fds[index].revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 {
+                file_manager = None;
             }
         }
 
