@@ -60,7 +60,17 @@ pub fn start() -> Option<Service> {
         .name("file-manager-dbus".into())
         .spawn(move || {
             if let Err(error) = run(tx, writer) {
-                eprintln!("selkies-desktop: FileManager1 service stopped: {error}");
+                let expected_conflict =
+                    error.to_string() == format!("{SERVICE} is already owned by another application");
+                if !expected_conflict || std::env::var_os("SELKIES_DESKTOP_DEBUG").is_some() {
+                    if expected_conflict {
+                        eprintln!(
+                            "selkies-desktop: {SERVICE} is already owned; leaving the existing file manager service untouched"
+                        );
+                    } else {
+                        eprintln!("selkies-desktop: FileManager1 service stopped: {error}");
+                    }
+                }
             }
         })
         .ok()?;
