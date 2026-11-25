@@ -222,6 +222,8 @@ pub struct Desktop {
     panel_dirty: bool,
     /// Windows in order of appearance.
     pub toplevels: Vec<Toplevel>,
+    /// The last toplevel reported active by the compositor.
+    active_toplevel: Option<u64>,
     /// The open popup.
     pub popup: Popup,
     /// What the pointer is over.
@@ -332,6 +334,7 @@ impl Desktop {
             panel_visible: Vec::new(),
             panel_dirty: false,
             toplevels: Vec::new(),
+            active_toplevel: None,
             popup: Popup::None,
             hover: Hover::None,
             hover_since: Instant::now(),
@@ -1077,16 +1080,16 @@ impl Desktop {
             }
             Event::ToplevelState { id, state } => {
                 // A layer-shell popup does not receive pointer clicks delivered
-                // to another application. Dismiss it only when a toplevel
-                // transitions from inactive to active; state updates for the
-                // window that was already active must not close a newly opened
-                // popup (for example, the Settings panel).
-                let became_active = state.active
-                    && self
-                        .toplevel_index(id)
-                        .is_some_and(|i| !self.toplevels[i].state.active);
-                if became_active && self.popup != Popup::None {
-                    self.close_popup();
+                // to another application. Dismiss it only when the compositor
+                // reports a different active toplevel. The first active-state
+                // event merely establishes the baseline; it must not dismiss a
+                // popup opened before the initial foreign-toplevel state arrived.
+                if state.active {
+                    let changed = self.active_toplevel.replace(id)
+                        .is_some_and(|previous| previous != id);
+                    if changed && self.popup != Popup::None {
+                        self.close_popup();
+                    }
                 }
                 if let Some(i) = self.toplevel_index(id)
                     && self.toplevels[i].state != state
