@@ -237,6 +237,7 @@ struct State {
     keymap: Keymap,
     modifiers: Modifiers,
     caps_lock: bool,
+    num_lock: bool,
     repeat_rate: u32,
     repeat_delay: Duration,
     key_repeat: Option<KeyRepeat>,
@@ -263,8 +264,9 @@ fn translate_key(
     keymap: &Keymap,
     shift: bool,
     caps_lock: bool,
+    num_lock: bool,
 ) -> Option<crate::xkb::Key> {
-    let mapped = keymap.translate(keycode + 8, shift, caps_lock);
+    let mapped = keymap.translate(keycode + 8, shift, caps_lock, num_lock);
     if matches!(mapped, Some(crate::xkb::Key::Function(_))) {
         return mapped;
     }
@@ -872,6 +874,7 @@ impl WaylandBackend {
             keymap: Keymap::default(),
             modifiers: Modifiers::default(),
             caps_lock: false,
+            num_lock: false,
             repeat_rate: 0,
             repeat_delay: Duration::from_millis(600),
             key_repeat: None,
@@ -1955,6 +1958,8 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for State {
                     alt: held & 8 != 0,
                 };
                 state.caps_lock = mods_locked & 2 != 0;
+                // XKB's standard Mod2 modifier is the NumLock lock state.
+                state.num_lock = mods_locked & (1 << 4) != 0;
                 if let Some(repeat) = state.key_repeat.as_mut() {
                     repeat.modifiers = state.modifiers;
                 }
@@ -1978,6 +1983,7 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for State {
                             &state.keymap,
                             state.modifiers.shift,
                             state.caps_lock,
+                            state.num_lock,
                         )
                     {
                         state.events.push(Event::Key {
@@ -2122,11 +2128,11 @@ mod keyboard_translation_tests {
     fn f2_is_not_mistaken_for_the_number_one_key() {
         let keymap = Keymap::from_x11(10, 1, &[u32::from(b'1')]);
         assert_eq!(
-            translate_key(60, &keymap, false, false),
+            translate_key(60, &keymap, false, false, false),
             Some(crate::xkb::Key::Function(2)),
         );
         assert_eq!(
-            translate_key(2, &keymap, false, false),
+            translate_key(2, &keymap, false, false, false),
             Some(crate::xkb::Key::Char('1')),
         );
     }
