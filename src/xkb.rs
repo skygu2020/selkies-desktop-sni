@@ -149,10 +149,17 @@ impl Keymap {
     ///
     /// # Returns
     /// The key, or `None` when the keycode produces nothing of interest.
-    pub fn translate(&self, keycode: u32, shift: bool, caps_lock: bool) -> Option<Key> {
+    pub fn translate(&self, keycode: u32, shift: bool, caps_lock: bool, num_lock: bool) -> Option<Key> {
         let (level1, level2) = self.syms.get(&keycode).copied()?;
-        let sym = if shift { level2 } else { level1 };
+        // Keypad keys use their second symbol level when NumLock is active;
+        // Shift reverses that choice, as it does in the XKB KEYPAD type.
+        let keypad = is_keypad_keysym(level1) || is_keypad_keysym(level2);
+        let level2_active = if keypad { shift ^ num_lock } else { shift };
+        let sym = if level2_active { level2 } else { level1 };
         let keysym = Keysym::new(sym);
+        if let Some(digit) = keypad_digit(keysym) {
+            return Some(Key::Char(digit));
+        }
         if let Some(key) = special_key(keysym) {
             return Some(key);
         }
@@ -249,6 +256,28 @@ pub fn keysym_from_name(name: &str) -> Option<u32> {
     names().get(name).copied()
 }
 
+/// Whether a keysym belongs to the numeric keypad's navigation/digit pairs.
+fn is_keypad_keysym(sym: u32) -> bool {
+    (0xff80..=0xffbd).contains(&sym)
+}
+
+/// Converts a numeric keypad digit keysym to ordinary text.
+fn keypad_digit(sym: Keysym) -> Option<char> {
+    Some(match sym {
+        Keysym::KP_0 => '0',
+        Keysym::KP_1 => '1',
+        Keysym::KP_2 => '2',
+        Keysym::KP_3 => '3',
+        Keysym::KP_4 => '4',
+        Keysym::KP_5 => '5',
+        Keysym::KP_6 => '6',
+        Keysym::KP_7 => '7',
+        Keysym::KP_8 => '8',
+        Keysym::KP_9 => '9',
+        _ => return None,
+    })
+}
+
 /// Keys that act rather than type.
 fn special_key(sym: Keysym) -> Option<Key> {
     Some(match sym {
@@ -319,16 +348,25 @@ xkb_symbols "pc+us" {
     #[test]
     fn parses_symbols_and_levels() {
         let map = Keymap::parse(KEYMAP);
-        assert_eq!(map.translate(9, false, false), Some(Key::Escape));
-        assert_eq!(map.translate(10, false, false), Some(Key::Char('1')));
-        assert_eq!(map.translate(10, true, false), Some(Key::Char('!')));
-        assert_eq!(map.translate(24, false, false), Some(Key::Char('q')));
-        assert_eq!(map.translate(24, true, false), Some(Key::Char('Q')));
-        assert_eq!(map.translate(24, false, true), Some(Key::Char('Q')));
-        assert_eq!(map.translate(24, true, true), Some(Key::Char('q')));
-        assert_eq!(map.translate(65, false, false), Some(Key::Char(' ')));
-        assert_eq!(map.translate(36, false, false), Some(Key::Enter));
-        assert_eq!(map.translate(200, false, false), None);
+        assert_eq!(map.translate(9, false, false, false), Some(Key::Escape));
+        assert_eq!(map.translate(10, false, false, false), Some(Key::Char('1')));
+        assert_eq!(map.translate(10, true, false, false), Some(Key::Char('!')));
+        assert_eq!(map.translate(24, false, false, false), Some(Key::Char('q')));
+        assert_eq!(map.translate(24, true, false, false), Some(Key::Char('Q')));
+        assert_eq!(map.translate(24, false, true, false), Some(Key::Char('Q')));
+        assert_eq!(map.translate(24, true, true, false), Some(Key::Char('q')));
+        assert_eq!(map.translate(65, false, false, false), Some(Key::Char(' ')));
+        assert_eq!(map.translate(36, false, false, false), Some(Key::Enter));
+        assert_eq!(map.translate(200, false, false, false), None);
+    }
+
+    #[test]
+    fn keypad_digits_follow_num_lock_and_shift() {
+        let map = Keymap::from_x11(10, 2, &[0xff9e, 0xffb1, 0xff9c, 0xffb2]);
+        assert_eq!(map.translate(10, false, false, false), Some(Key::End));
+        assert_eq!(map.translate(10, false, false, true), Some(Key::Char('1')));
+        assert_eq!(map.translate(10, true, false, true), Some(Key::End));
+        assert_eq!(map.translate(11, false, false, true), Some(Key::Char('2')));
     }
 
     #[test]
@@ -344,9 +382,9 @@ xkb_symbols "pc+us" {
     #[test]
     fn x11_mapping() {
         let map = Keymap::from_x11(8, 2, &[0, 0, 0x61, 0x41, 0xff0d, 0]);
-        assert_eq!(map.translate(9, false, false), Some(Key::Char('a')));
-        assert_eq!(map.translate(9, true, false), Some(Key::Char('A')));
-        assert_eq!(map.translate(10, true, false), Some(Key::Enter));
-        assert_eq!(map.translate(8, false, false), None);
+        assert_eq!(map.translate(9, false, false, false), Some(Key::Char('a')));
+        assert_eq!(map.translate(9, true, false, false), Some(Key::Char('A')));
+        assert_eq!(map.translate(10, true, false, false), Some(Key::Enter));
+        assert_eq!(map.translate(8, false, false, false), None);
     }
 }
