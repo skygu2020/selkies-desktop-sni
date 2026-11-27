@@ -362,7 +362,7 @@ xkb_symbols "pc+us" {
 
     #[test]
     fn keypad_digits_follow_num_lock_and_shift() {
-        let map = Keymap::from_x11(10, 2, &[0xff9e, 0xffb1, 0xff9c, 0xffb2]);
+        let map = Keymap::from_x11(10, 2, &[0xff9c, 0xffb1, 0xff99, 0xffb2]);
         assert_eq!(map.translate(10, false, false, false), Some(Key::End));
         assert_eq!(map.translate(10, false, false, true), Some(Key::Char('1')));
         assert_eq!(map.translate(10, true, false, true), Some(Key::End));
