@@ -1273,7 +1273,8 @@ impl X11Backend {
                 self.last_time = e.time;
                 let modifiers = modifiers_of(e.state);
                 let caps = e.state.contains(xproto::KeyButMask::LOCK);
-                if let Some(key) = self.keymap.translate(e.detail as u32, modifiers.shift, caps) {
+                let num_lock = e.state.contains(xproto::KeyButMask::MOD2);
+                if let Some(key) = self.keymap.translate(e.detail as u32, modifiers.shift, caps, num_lock) {
                     self.events.push(Event::Key {
                         surface: self.surface_of(e.event),
                         key,
